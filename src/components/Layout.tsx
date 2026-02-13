@@ -151,7 +151,7 @@ export default function Layout() {
     }
 
     return (
-        <div className="flex flex-col h-screen bg-[#313338] text-white">
+        <div className="flex flex-col h-screen bg-[#0d0f12] text-white">
             <Navbar
                 onMenuClick={() => setSidebarOpen(!sidebarOpen)}
                 user={user}
@@ -159,15 +159,17 @@ export default function Layout() {
                 onUserUpdate={setUser}
                 onLogout={handleLogout}
             />
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex-1 min-h-0 px-0 md:px-3 pb-0 md:pb-3">
                 {!isConnected || !user ? (
-                    <div className="text-center">
-                        <div className="mb-4 text-6xl">🔌</div>
-                        <h2 className="text-2xl font-bold mb-2">Connecting to server...</h2>
-                        <p className="text-gray-400">Make sure your backend API/socket server is reachable</p>
+                    <div className="h-full flex items-center justify-center text-center">
+                        <div className="rounded-xl bg-[#15181c] border border-white/10 px-8 py-10">
+                            <div className="mb-4 text-5xl">🔌</div>
+                            <h2 className="text-2xl font-bold mb-2">Connecting to server...</h2>
+                            <p className="text-slate-400">Make sure your backend API/socket server is reachable</p>
+                        </div>
                     </div>
                 ) : (
-                    <div className="flex flex-1 overflow-hidden w-full">
+                    <div className="flex h-full overflow-hidden md:rounded-xl md:border md:border-white/10 md:bg-[#121418] md:shadow-2xl">
                         <Sidebar
                             isOpen={sidebarOpen}
                             onClose={() => setSidebarOpen(false)}

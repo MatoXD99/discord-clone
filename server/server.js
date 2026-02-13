@@ -16,9 +16,9 @@ const __dirname = path.dirname(__filename);
 
 const prisma = new PrismaClient({});
 const app = express();
+app.set("trust proxy", true);
 const httpServer = createServer(app);
 
-app.set("trust proxy", 1);
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -35,6 +35,19 @@ const imagesDir = path.join(__dirname, "images");
 if (!fs.existsSync(imagesDir)) {
     fs.mkdirSync(imagesDir, { recursive: true });
 }
+
+
+const resolvePublicBaseUrl = (req) => {
+    const explicit = process.env.PUBLIC_API_BASE_URL?.trim();
+    if (explicit) {
+        return explicit.replace(/\/+$/, "");
+    }
+
+    const forwardedProto = req.get("x-forwarded-proto")?.split(",")[0]?.trim();
+    const protocol = forwardedProto || req.protocol || "http";
+    const host = req.get("x-forwarded-host")?.split(",")[0]?.trim() || req.get("host");
+    return `${protocol}://${host}`;
+};
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -175,9 +188,7 @@ app.post("/api/me/avatar", requireAuth, upload.single("file"), async (req, res) 
             .webp({ quality: 85 })
             .toFile(filepath);
 
-        const host = req.get("host");
-        const protocol = req.protocol;
-        const avatarUrl = `${protocol}://${host}/images/${filename}`;
+        const avatarUrl = `${resolvePublicBaseUrl(req)}/images/${filename}`;
 
         const user = await prisma.user.update({
             where: { id: req.userId },
@@ -213,9 +224,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
             .webp({ quality: 85 })
             .toFile(filepath);
 
-        const host = req.get("host");
-        const protocol = req.protocol;
-        const fileUrl = `${protocol}://${host}/images/${filename}`;
+        const fileUrl = `${resolvePublicBaseUrl(req)}/images/${filename}`;
         res.json({ fileUrl });
     } catch (error) {
         console.error("Image processing error:", error);
