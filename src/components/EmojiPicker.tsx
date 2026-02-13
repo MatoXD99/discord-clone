@@ -1,3 +1,4 @@
+import React from "react";
 
 // Lightweight emoji picker - common emojis
 const EMOJIS = [
