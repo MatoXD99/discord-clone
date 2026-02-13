@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { fetchJson } from "../apiClient";
 
 type RegisterProps = {
     onRegisterSuccess: (token: string, username: string) => void;
@@ -31,33 +32,22 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
 
         try {
             // Register
-            const registerResponse = await fetch("http://localhost:3001/api/register", {
+            await fetchJson<{ id: number; username: string }>("/api/register", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ username, password }),
-            });
-
-            if (!registerResponse.ok) {
-                const data = await registerResponse.json();
-                throw new Error(data.error || "Registration failed");
-            }
+            }, "Registration failed");
 
             // Auto-login after registration
-            const loginResponse = await fetch("http://localhost:3001/api/login", {
+            const { token, user } = await fetchJson<{ token: string; user: { username: string } }>("/api/login", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ username, password }),
-            });
-
-            if (!loginResponse.ok) {
-                throw new Error("Login after registration failed");
-            }
-
-            const { token, user } = await loginResponse.json();
+            }, "Login after registration failed");
             localStorage.setItem("authToken", token);
             onRegisterSuccess(token, user.username);
         } catch (err) {

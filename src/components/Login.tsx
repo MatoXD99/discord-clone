@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { clearPreferredApiBaseUrl, fetchJson, getCurrentApiBaseUrl, setPreferredApiBaseUrl } from "../apiClient";
 
 type LoginProps = {
     onLoginSuccess: (token: string, username: string) => void;
@@ -10,6 +11,9 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
+    const [showConnectionSettings, setShowConnectionSettings] = useState(false);
+    const [apiBaseInput, setApiBaseInput] = useState(getCurrentApiBaseUrl());
+    const [apiBaseStatus, setApiBaseStatus] = useState("");
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -17,20 +21,13 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
         setLoading(true);
 
         try {
-            const response = await fetch("http://localhost:3001/api/login", {
+            const { token, user } = await fetchJson<{ token: string; user: { username: string } }>("/api/login", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ username, password }),
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || "Login failed");
-            }
-
-            const { token, user } = await response.json();
+            }, "Login failed");
             localStorage.setItem("authToken", token);
             onLoginSuccess(token, user.username);
         } catch (err) {
@@ -40,6 +37,23 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleSaveApiBase = () => {
+        setApiBaseStatus("");
+        const ok = setPreferredApiBaseUrl(apiBaseInput);
+        if (!ok) {
+            setApiBaseStatus("Invalid URL. Example: https://your-backend-domain.com");
+            return;
+        }
+        setApiBaseStatus(`Using API base: ${getCurrentApiBaseUrl()}`);
+    };
+
+    const handleResetApiBase = () => {
+        clearPreferredApiBaseUrl();
+        const next = getCurrentApiBaseUrl();
+        setApiBaseInput(next);
+        setApiBaseStatus(`Reset complete. Using: ${next}`);
     };
 
     return (
@@ -91,6 +105,46 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
                         {loading ? "Logging in..." : "Log In"}
                     </button>
                 </form>
+
+                <div className="mt-6 pt-4 border-t border-red-900/30">
+                    <button
+                        type="button"
+                        onClick={() => setShowConnectionSettings((prev) => !prev)}
+                        className="text-sm text-red-300 hover:text-red-200 transition-colors"
+                    >
+                        {showConnectionSettings ? "Hide" : "Show"} connection settings
+                    </button>
+
+                    {showConnectionSettings && (
+                        <div className="mt-3 space-y-3">
+                            <label className="block text-red-200 text-xs font-semibold">API Base URL</label>
+                            <input
+                                type="text"
+                                value={apiBaseInput}
+                                onChange={(e) => setApiBaseInput(e.target.value)}
+                                placeholder="https://your-backend-domain.com"
+                                className="w-full bg-slate-800 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600 border border-slate-700"
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleSaveApiBase}
+                                    className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold py-2 rounded-lg"
+                                >
+                                    Save API URL
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleResetApiBase}
+                                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-red-200 text-sm font-semibold py-2 rounded-lg border border-slate-600"
+                                >
+                                    Reset
+                                </button>
+                            </div>
+                            {apiBaseStatus && <p className="text-xs text-red-200/80">{apiBaseStatus}</p>}
+                        </div>
+                    )}
+                </div>
 
                 <p className="text-red-200/60 text-center mt-8">
                     Don't have an account?{" "}
