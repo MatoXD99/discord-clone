@@ -1,13 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Socket } from "socket.io-client";
 import EmojiPicker from "./EmojiPicker";
 import { fetchJson, resolveMediaUrl } from "../apiClient";
-import type { UserProfile } from "./Layout";
-
-type Channel = {
-    id: string;
-    name: string;
-};
+import type { DmConversation, FriendshipState } from "./Layout";
 
 type Message = {
     id?: number;
@@ -23,20 +18,20 @@ type Message = {
 
 export default function Chat({
     socket,
+    activeView,
     activeChannel,
-    channels,
-    currentUser,
+    activeDm,
+    friendshipState,
 }: {
     socket: Socket;
-    activeChannel: string;
-    channels: Channel[];
-    currentUser: UserProfile;
+    activeView: "channel" | "friends" | "dm";
+    activeChannel: { id: number; name: string; serverName: string } | null;
+    activeDm: DmConversation | null;
+    friendshipState: FriendshipState;
 }) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isUploading, setIsUploading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    const currentChannel = channels.find((c) => c.id === activeChannel);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -44,20 +39,32 @@ export default function Chat({
 
     useEffect(() => {
         setMessages([]);
+        const onChannelHistory = (history: Message[]) => activeView === "channel" && setMessages(history);
+        const onReceive = (msg: Message) => activeView === "channel" && setMessages((prev) => [...prev, msg]);
+        const onDmHistory = (payload: { conversationId: number; messages: Message[] }) => {
+            if (activeView === "dm" && payload.conversationId === activeDm?.id) setMessages(payload.messages);
+        };
+        const onReceiveDm = (msg: Message & { conversationId: number }) => {
+            if (activeView === "dm" && msg.conversationId === activeDm?.id) setMessages((prev) => [...prev, msg]);
+        };
 
-        socket.on("message_history", (history: Message[]) => {
-            setMessages(history);
-        });
-
-        socket.on("receive_message", (data: Message) => {
-            setMessages((prev) => [...prev, data]);
-        });
+        socket.on("message_history", onChannelHistory);
+        socket.on("receive_message", onReceive);
+        socket.on("dm_history", onDmHistory);
+        socket.on("receive_dm", onReceiveDm);
 
         return () => {
-            socket.off("message_history");
-            socket.off("receive_message");
+            socket.off("message_history", onChannelHistory);
+            socket.off("receive_message", onReceive);
+            socket.off("dm_history", onDmHistory);
+            socket.off("receive_dm", onReceiveDm);
         };
-    }, [socket, activeChannel]);
+    }, [socket, activeView, activeDm?.id]);
+
+    const sendPayload = (payload: { text?: string; fileUrl?: string; type: string }) => {
+        if (activeView === "channel") socket.emit("send_message", payload);
+        if (activeView === "dm" && activeDm) socket.emit("send_dm", { ...payload, conversationId: activeDm.id });
+    };
 
     const handleFileUpload = async (file: File) => {
         setIsUploading(true);
@@ -65,226 +72,100 @@ export default function Chat({
         formData.append("file", file);
 
         try {
-            const data = await fetchJson<{ fileUrl: string }>("/upload", {
-                method: "POST",
-                body: formData,
-            }, "Upload failed");
-
-            socket.emit("send_message", {
-                fileUrl: data.fileUrl,
-                type: "image",
-                timestamp: new Date(),
-            });
-        } catch (error) {
-            console.error("File upload error:", error);
+            const data = await fetchJson<{ fileUrl: string }>("/upload", { method: "POST", body: formData }, "Upload failed");
+            sendPayload({ fileUrl: data.fileUrl, type: "image" });
+        } catch {
             alert("Failed to upload image");
         } finally {
             setIsUploading(false);
         }
     };
 
-    const handleSendMessage = (text: string) => {
-        socket.emit("send_message", {
-            text,
-            type: "text",
-            timestamp: new Date(),
-        });
-    };
+    if (activeView === "friends") {
+        return (
+            <div className="flex-1 bg-[#1a1c1f] p-6 overflow-y-auto">
+                <h2 className="text-xl font-semibold mb-4">Friends</h2>
+                <div className="space-y-2">
+                    {friendshipState.friends.map((friend) => (
+                        <div key={friend.id} className="bg-[#22262c] rounded-md p-3">{friend.user.displayName}</div>
+                    ))}
+                    {friendshipState.friends.length === 0 && <p className="text-slate-400">No friends yet.</p>}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex-1 flex flex-col bg-[#1a1c1f] overflow-hidden">
-            <div className="h-16 border-b border-white/10 flex items-center px-6 flex-shrink-0 bg-[#17191c]">
-                <h2 className="text-lg font-semibold text-slate-100 tracking-wide">{currentChannel ? currentChannel.name : "No channel"}</h2>
+            <div className="h-14 border-b border-white/10 flex items-center px-5 bg-[#17191c]">
+                <h2 className="text-lg font-semibold">{activeView === "dm" ? `@ ${activeDm?.user.displayName}` : `# ${activeChannel?.name}`}</h2>
             </div>
-
-            <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-1">
-                {messages.length === 0 ? (
-                    <div className="flex items-center justify-center h-full text-slate-400">
-                        <p className="text-base">No messages yet. Start the conversation!</p>
-                    </div>
-                ) : (
-                    messages.map((msg, idx) => {
-                        const prev = messages[idx - 1];
-                        const next = messages[idx + 1];
-                        const isSystem = msg.type === "system";
-                        const isOwn = !isSystem && msg.userId === currentUser.id;
-
-                        const groupedWithPrev = !isSystem
-                            && !!prev
-                            && prev.type !== "system"
-                            && prev.userId === msg.userId;
-
-                        const groupedWithNext = !isSystem
-                            && !!next
-                            && next.type !== "system"
-                            && next.userId === msg.userId;
-
-                        if (isSystem) {
-                            return (
-                                <div key={`${msg.timestamp}-${idx}`} className="text-center text-xs text-slate-500 italic py-3">
-                                    {msg.text}
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+                {messages.map((msg, idx) => {
+                    const showHeader = idx === 0 || messages[idx - 1].userId !== msg.userId;
+                    return (
+                        <div key={`${msg.timestamp}-${idx}`} className="flex justify-start">
+                            <div className="flex gap-2 max-w-[75%]">
+                                <div className={`w-9 h-9 ${showHeader ? "opacity-100" : "opacity-0"}`}>
+                                    {showHeader && (msg.avatarUrl ? <img src={resolveMediaUrl(msg.avatarUrl)} className="w-9 h-9 rounded-full object-cover" /> : <div className="w-9 h-9 rounded-full bg-slate-700" />)}
                                 </div>
-                            );
-                        }
-
-                        const showHeader = !groupedWithPrev;
-                        const avatarFallback = (msg.displayName || msg.username || "?").charAt(0).toUpperCase();
-
-                        return (
-                            <div key={`${msg.timestamp}-${idx}`} className={`flex ${isOwn ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-3"}`}>
-                                <div className={`flex ${isOwn ? "flex-row-reverse" : "flex-row"} items-end gap-2 max-w-[85%] md:max-w-[72%]`}>
-                                    <div className={`w-9 h-9 ${showHeader ? "opacity-100" : "opacity-0"}`}>
-                                        {showHeader && (
-                                            msg.avatarUrl ? (
-                                                <img src={resolveMediaUrl(msg.avatarUrl)} alt={msg.displayName || msg.username} className="w-9 h-9 rounded-full object-cover border border-white/10" />
-                                            ) : (
-                                                <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold text-slate-200">{avatarFallback}</div>
-                                            )
-                                        )}
-                                    </div>
-
-                                    <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
-                                        {showHeader && (
-                                            <div className={`flex items-baseline gap-2 mb-1 ${isOwn ? "flex-row-reverse" : ""}`}>
-                                                <span className="text-sm font-medium text-slate-200">{msg.displayName || msg.username}</span>
-                                                <span className="text-xs text-slate-500">{new Date(msg.timestamp).toLocaleTimeString()}</span>
-                                            </div>
-                                        )}
-
-                                        {msg.type === "image" ? (
-                                            <img
-                                                src={resolveMediaUrl(msg.fileUrl)}
-                                                alt="shared"
-                                                className={`max-w-sm rounded-2xl border border-white/10 ${isOwn ? "rounded-br-md" : "rounded-bl-md"} ${groupedWithNext ? "mb-0.5" : ""}`}
-                                            />
-                                        ) : (
-                                            <p
-                                                className={`px-4 py-2.5 text-sm leading-relaxed break-words shadow ${isOwn
-                                                    ? "bg-slate-200 text-slate-900"
-                                                    : "bg-[#2b2f35] text-slate-100"
-                                                    } ${isOwn
-                                                        ? (groupedWithPrev ? "rounded-2xl rounded-tr-lg" : "rounded-3xl rounded-br-lg")
-                                                        : (groupedWithPrev ? "rounded-2xl rounded-tl-lg" : "rounded-3xl rounded-bl-lg")
-                                                    } ${groupedWithNext ? (isOwn ? "rounded-br-lg" : "rounded-bl-lg") : ""}`}
-                                            >
-                                                {msg.text}
-                                            </p>
-                                        )}
-                                    </div>
+                                <div>
+                                    {showHeader && <div className="text-sm text-slate-300 mb-1">{msg.displayName || msg.username} · {new Date(msg.timestamp).toLocaleTimeString()}</div>}
+                                    {msg.type === "image" ? <ImageWithLoader url={resolveMediaUrl(msg.fileUrl)} /> : <p className="bg-[#2b2f35] rounded-2xl px-4 py-2 text-sm">{msg.text}</p>}
                                 </div>
                             </div>
-                        );
-                    })
-                )}
+                        </div>
+                    );
+                })}
                 <div ref={messagesEndRef} />
             </div>
-
-            {isUploading && (
-                <div className="bg-slate-800 text-slate-100 px-6 py-2 text-sm border-t border-white/10">
-                    Uploading image...
-                </div>
-            )}
-
+            {isUploading && <div className="text-sm px-5 py-2 border-t border-white/10">Uploading image...</div>}
             <MessageInput
-                onSendMessage={handleSendMessage}
+                onSendMessage={(text) => sendPayload({ text, type: "text" })}
                 onFileUpload={handleFileUpload}
-                channelName={currentChannel?.name.slice(2) || "channel"}
+                placeholder={activeView === "dm" ? `Message ${activeDm?.user.displayName || "user"}` : `Message #${activeChannel?.name || "channel"}`}
             />
         </div>
     );
 }
 
-function MessageInput({
-    onSendMessage,
-    onFileUpload,
-    channelName,
-}: {
-    onSendMessage: (text: string) => void;
-    onFileUpload: (file: File) => void;
-    channelName: string;
-}) {
+function ImageWithLoader({ url }: { url?: string }) {
+    const [isLoading, setIsLoading] = useState(true);
+    if (!url) return null;
+
+    return (
+        <div className="relative w-fit">
+            {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-[#20242a] rounded-xl min-h-28 min-w-40">
+                    <div className="w-7 h-7 border-4 border-slate-500 border-t-slate-200 rounded-full animate-spin" />
+                </div>
+            )}
+            <img src={url} alt="shared" onLoad={() => setIsLoading(false)} onError={() => setIsLoading(false)} className="max-w-sm rounded-xl border border-white/10" />
+        </div>
+    );
+}
+
+function MessageInput({ onSendMessage, onFileUpload, placeholder }: { onSendMessage: (text: string) => void; onFileUpload: (file: File) => void; placeholder: string; }) {
     const [inputValue, setInputValue] = useState("");
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleSend = () => {
-        if (inputValue.trim()) {
-            onSendMessage(inputValue);
-            setInputValue("");
-        }
-    };
-
-    const handleKeyPress = (e: React.KeyboardEvent) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
-        }
-    };
-
-    const handleEmojiSelect = (emoji: string) => {
-        setInputValue((prev) => prev + emoji);
-    };
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            onFileUpload(file);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = "";
-            }
-        }
+        if (!inputValue.trim()) return;
+        onSendMessage(inputValue.trim());
+        setInputValue("");
     };
 
     return (
-        <div className="bg-[#17191c] border-t border-white/10 p-4 md:p-6 flex-shrink-0 relative">
+        <div className="bg-[#17191c] border-t border-white/10 p-4 relative">
             <div className="flex gap-2 items-center bg-[#23272d] rounded-xl px-3 py-2 border border-white/5">
-                <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="hover:bg-white/10 text-slate-200 p-2 rounded-md transition-all"
-                    title="Upload image"
-                >
-                    📎
-                </button>
-
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="hidden"
-                    aria-label="Upload image"
-                />
-
-                <input
-                    type="text"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyPress}
-                    placeholder={`Message #${channelName}`}
-                    className="flex-1 bg-transparent text-white placeholder-slate-400 px-2 py-1 focus:outline-none"
-                />
-
-                <button
-                    onClick={() => setEmojiPickerOpen(!emojiPickerOpen)}
-                    className="hover:bg-white/10 text-slate-200 p-2 rounded-md transition-all"
-                    title="Open emoji picker"
-                >
-                    😊
-                </button>
-
-                <button
-                    onClick={handleSend}
-                    className="bg-slate-200 hover:bg-white text-slate-900 px-4 py-2 rounded-md text-sm font-medium"
-                >
-                    Send
-                </button>
+                <button onClick={() => fileInputRef.current?.click()} className="p-2">📎</button>
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && onFileUpload(e.target.files[0])} />
+                <input value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSend())} placeholder={placeholder} className="flex-1 bg-transparent outline-none" />
+                <button onClick={() => setEmojiPickerOpen(!emojiPickerOpen)} className="p-2">😊</button>
+                <button onClick={handleSend} className="bg-slate-200 text-slate-900 px-4 py-2 rounded-md text-sm font-medium">Send</button>
             </div>
-
-            <EmojiPicker
-                isOpen={emojiPickerOpen}
-                onClose={() => setEmojiPickerOpen(false)}
-                onEmojiSelect={handleEmojiSelect}
-            />
+            <EmojiPicker isOpen={emojiPickerOpen} onClose={() => setEmojiPickerOpen(false)} onEmojiSelect={(emoji) => setInputValue((v) => v + emoji)} />
         </div>
     );
 }
