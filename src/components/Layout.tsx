@@ -28,7 +28,7 @@ export default function Layout() {
 
     // Chat state
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [channels, setChannels] = useState<Channel[]>(DEFAULT_CHANNELS);
+    const [channels] = useState<Channel[]>(DEFAULT_CHANNELS);
     const [activeChannel, setActiveChannel] = useState(DEFAULT_CHANNELS[0].id);
     const [socket, setSocket] = useState<Socket | null>(null);
     const [isConnected, setIsConnected] = useState(false);
@@ -84,11 +84,23 @@ export default function Layout() {
         };
     }, [isAuthenticated, authToken]);
 
-    // Join channel when socket is ready and activeChannel changes
+    // Join active channel whenever connection comes up or channel changes
     useEffect(() => {
-        if (socket && socket.connected) {
+        if (!socket) return;
+
+        const joinActiveChannel = () => {
             socket.emit("join_channel", activeChannel);
+        };
+
+        if (socket.connected) {
+            joinActiveChannel();
         }
+
+        socket.on("connect", joinActiveChannel);
+
+        return () => {
+            socket.off("connect", joinActiveChannel);
+        };
     }, [socket, activeChannel]);
 
     // Handle login
@@ -111,9 +123,6 @@ export default function Layout() {
     // Handle channel switch
     const handleChannelSelect = (channelId: string) => {
         setActiveChannel(channelId);
-        if (socket) {
-            socket.emit("join_channel", channelId);
-        }
     };
 
     // Show login/register screens if not authenticated
