@@ -71,3 +71,12 @@ export default defineConfig([
   },
 ])
 ```
+
+
+## Deployment note
+
+Frontend API and Socket.IO requests now default to the same origin as the loaded page.
+
+- Recommended: set `VITE_API_BASE_URL` (for example `https://api.discord.slovenitech.si`) for production.
+- Without override, frontend will try these API hosts in order: same-origin, `api.<current-host>`, then `<current-host>:3001`.
+- Ensure your reverse proxy forwards both `/api/*` and Socket.IO (`/socket.io/*`) to the backend server.

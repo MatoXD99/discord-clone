@@ -18,6 +18,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const httpServer = createServer(app);
 
+// Trust reverse proxy headers (required when app runs behind Nginx/Traefik/etc.)
+app.set("trust proxy", 1);
+
 // Middleware
 app.use(express.json());
 
@@ -127,7 +130,9 @@ app.post("/upload", upload.single("file"), async (req, res) => {
             .webp({ quality: 85 })
             .toFile(filepath);
 
-        const fileUrl = `http://localhost:3001/images/${filename}`;
+        const host = req.get("host");
+        const protocol = req.protocol;
+        const fileUrl = `${protocol}://${host}/images/${filename}`;
         res.json({ fileUrl });
     } catch (error) {
         console.error("Image processing error:", error);
@@ -141,5 +146,5 @@ setupSocketHandlers(io);
 // ============ Start Server ============
 const PORT = 3001;
 httpServer.listen(PORT, () => {
-    console.log(`🚀 Server listening on http://localhost:${PORT}`);
+    console.log(`🚀 Server listening on port ${PORT}`);
 });
