@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Socket } from "socket.io-client";
 import EmojiPicker from "./EmojiPicker";
-import { buildApiUrl } from "../apiClient";
+import { fetchJson } from "../apiClient";
 
 type Channel = {
     id: string;
@@ -66,16 +66,10 @@ export default function Chat({
         formData.append("file", file);
 
         try {
-            const response = await fetch(buildApiUrl("/upload"), {
+            const data = await fetchJson<{ fileUrl: string }>("/upload", {
                 method: "POST",
                 body: formData,
-            });
-
-            if (!response.ok) {
-                throw new Error("Upload failed");
-            }
-
-            const data = await response.json();
+            }, "Upload failed");
 
             // Emit image message to server
             socket.emit("send_message", {

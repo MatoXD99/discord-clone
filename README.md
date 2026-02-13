@@ -79,3 +79,4 @@ Frontend API and Socket.IO requests now default to the same origin as the loaded
 
 - Optional override: set `VITE_API_BASE_URL` (for example `https://api.example.com`).
 - If you serve frontend and backend behind one domain/reverse proxy, no override is needed.
+- Ensure your reverse proxy forwards both `/api/*` and Socket.IO (`/socket.io/*`) to the backend server.
