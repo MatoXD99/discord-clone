@@ -1,4 +1,3 @@
-import React from "react";
 
 type Channel = {
     id: string;
@@ -27,46 +26,38 @@ export default function Sidebar({
 
     return (
         <>
-            {/* Mobile overlay */}
             {isOpen && (
-                <div
-                    className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
-                    onClick={onClose}
-                ></div>
+                <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={onClose}></div>
             )}
 
-            {/* Sidebar */}
             <aside
-                className={`fixed md:static top-20 left-0 h-[calc(100vh-5rem)] w-64 bg-gradient-to-b from-slate-900 to-slate-950 border-r border-red-900/50 transition-transform duration-300 z-40 md:z-0 overflow-y-auto flex flex-col shadow-lg
+                className={`fixed md:static top-14 left-0 h-[calc(100vh-3.5rem)] w-64 bg-[#2b2d31] transition-transform duration-300 z-40 md:z-0 overflow-y-auto flex flex-col
           ${isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
             >
-                {/* Close button for mobile */}
                 <button
                     onClick={onClose}
-                    className="md:hidden absolute top-6 right-6 w-8 h-8 flex items-center justify-center hover:bg-red-900/50 rounded-lg transition-colors"
+                    className="md:hidden absolute top-3 right-3 w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-md transition-colors"
                     aria-label="Close sidebar"
                 >
-                    <span className="text-2xl leading-none text-red-400">&times;</span>
+                    <span className="text-2xl leading-none text-slate-300">&times;</span>
                 </button>
 
-                {/* Sidebar header */}
-                <div className="p-6 border-b border-red-900/50 mt-8 md:mt-0">
-                    <h2 className="text-lg font-bold text-red-400">📢 Channels</h2>
+                <div className="p-4 border-b border-black/20">
+                    <h2 className="text-sm font-semibold uppercase text-slate-400 tracking-wide">Text channels</h2>
                 </div>
 
-                {/* Channel list */}
-                <nav className="flex-1 p-6">
-                    <ul className="space-y-3">
+                <nav className="flex-1 p-2">
+                    <ul className="space-y-1">
                         {channels.map((channel) => (
                             <li key={channel.id}>
                                 <button
                                     onClick={() => handleChannelClick(channel.id)}
-                                    className={`w-full text-left px-5 py-3 rounded-lg transition-all ${activeChannel === channel.id
-                                        ? "bg-red-600/80 text-white font-semibold shadow-lg shadow-red-600/30"
-                                        : "text-red-200/70 hover:bg-red-900/30 hover:text-red-300"
+                                    className={`w-full text-left px-3 py-2 rounded-md transition-all ${activeChannel === channel.id
+                                        ? "bg-[#404249] text-slate-100 font-medium"
+                                        : "text-slate-400 hover:bg-[#35373c] hover:text-slate-200"
                                         }`}
                                 >
-                                    # {channel.name}
+                                    {channel.name}
                                 </button>
                             </li>
                         ))}

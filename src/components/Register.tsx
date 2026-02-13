@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { fetchJson } from "../apiClient";
+import type { UserProfile } from "./Layout";
 
 type RegisterProps = {
-    onRegisterSuccess: (token: string, username: string) => void;
+    onRegisterSuccess: (token: string, user: UserProfile) => void;
     onSwitchToLogin: () => void;
 };
 
@@ -41,7 +42,7 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
             }, "Registration failed");
 
             // Auto-login after registration
-            const { token, user } = await fetchJson<{ token: string; user: { username: string } }>("/api/login", {
+            const { token, user } = await fetchJson<{ token: string; user: UserProfile }>("/api/login", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -49,7 +50,7 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
                 body: JSON.stringify({ username, password }),
             }, "Login after registration failed");
             localStorage.setItem("authToken", token);
-            onRegisterSuccess(token, user.username);
+            onRegisterSuccess(token, user);
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : "Registration failed";
             console.error("Registration error:", err);
