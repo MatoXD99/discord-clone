@@ -7,7 +7,6 @@ const explicitApiBaseUrl = rawApiBaseUrl ? trimTrailingSlashes(rawApiBaseUrl) : 
 type JsonRecord = Record<string, unknown>;
 
 type ParsedBody = {
-    contentType: string;
     value: unknown;
 };
 
@@ -25,9 +24,39 @@ const readPreferredApiBase = () => {
     return value ? trimTrailingSlashes(value) : null;
 };
 
+const normalizeApiBaseUrl = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+    try {
+        const url = new URL(candidate);
+        if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+        return trimTrailingSlashes(url.origin + url.pathname).replace(/\/$/, "");
+    } catch {
+        return null;
+    }
+};
+
 const storePreferredApiBase = (baseUrl: string) => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(PREFERRED_API_BASE_STORAGE_KEY, trimTrailingSlashes(baseUrl));
+    const normalized = normalizeApiBaseUrl(baseUrl);
+    if (!normalized) return;
+    window.localStorage.setItem(PREFERRED_API_BASE_STORAGE_KEY, normalized);
+};
+
+export const setPreferredApiBaseUrl = (baseUrl: string) => {
+    if (typeof window === "undefined") return false;
+    const normalized = normalizeApiBaseUrl(baseUrl);
+    if (!normalized) return false;
+    window.localStorage.setItem(PREFERRED_API_BASE_STORAGE_KEY, normalized);
+    return true;
+};
+
+export const clearPreferredApiBaseUrl = () => {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(PREFERRED_API_BASE_STORAGE_KEY);
 };
 
 const unique = (values: Array<string | null | undefined>) => {
@@ -45,29 +74,43 @@ const unique = (values: Array<string | null | undefined>) => {
     return out;
 };
 
+const getApiBaseFromQuery = () => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    const queryValue = params.get("apiBase");
+    if (!queryValue) return null;
+    const normalized = normalizeApiBaseUrl(queryValue);
+    if (!normalized) return null;
+    window.localStorage.setItem(PREFERRED_API_BASE_STORAGE_KEY, normalized);
+    return normalized;
+};
+
 export const getApiBaseCandidates = () => {
     if (typeof window === "undefined") {
         return explicitApiBaseUrl ? [explicitApiBaseUrl] : [];
     }
 
     const { protocol, hostname, port, origin } = window.location;
+    const queryApiBase = getApiBaseFromQuery();
     const preferred = readPreferredApiBase();
 
     const apiSubdomain = hostname.startsWith("api.") ? null : `${protocol}//api.${hostname}${port ? `:${port}` : ""}`;
     const port3001 = port ? null : `${protocol}//${hostname}:3001`;
 
     if (explicitApiBaseUrl) {
-        return unique([explicitApiBaseUrl, preferred]);
+        return unique([explicitApiBaseUrl, queryApiBase, preferred]);
     }
 
-    return unique([preferred, origin, apiSubdomain, port3001]);
+    return unique([queryApiBase, preferred, origin, apiSubdomain, port3001]);
 };
 
 export const API_BASE_URL = explicitApiBaseUrl || readPreferredApiBase() || (typeof window !== "undefined" ? window.location.origin : "");
 
+export const getCurrentApiBaseUrl = () => getApiBaseCandidates()[0] || API_BASE_URL;
+
 export const buildApiUrl = (path: string, baseUrl?: string) => {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-    const base = baseUrl || API_BASE_URL;
+    const base = baseUrl || getCurrentApiBaseUrl();
     return `${base}${normalizedPath}`;
 };
 
@@ -76,17 +119,17 @@ const parseResponseBody = async (response: Response): Promise<ParsedBody> => {
 
     if (contentType.includes("application/json")) {
         const text = await response.text();
-        if (!text) return { contentType, value: null };
+        if (!text) return { value: null };
 
         try {
-            return { contentType, value: JSON.parse(text) };
+            return { value: JSON.parse(text) };
         } catch {
             throw new Error("Server returned invalid JSON response");
         }
     }
 
     const text = await response.text();
-    return { contentType, value: text };
+    return { value: text };
 };
 
 export async function fetchJson<T>(path: string, init: RequestInit, fallbackErrorMessage: string): Promise<T> {
@@ -154,4 +197,4 @@ export async function fetchJson<T>(path: string, init: RequestInit, fallbackErro
     throw new Error(`${reason}. Tried: ${attempted}`);
 }
 
-export const getSocketBaseUrl = () => getApiBaseCandidates()[0] || API_BASE_URL;
+export const getSocketBaseUrl = () => getCurrentApiBaseUrl();
