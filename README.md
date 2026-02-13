@@ -71,3 +71,11 @@ export default defineConfig([
   },
 ])
 ```
+
+
+## Deployment note
+
+Frontend API and Socket.IO requests now default to the same origin as the loaded page.
+
+- Optional override: set `VITE_API_BASE_URL` (for example `https://api.example.com`).
+- If you serve frontend and backend behind one domain/reverse proxy, no override is needed.

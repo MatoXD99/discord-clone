@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Socket } from "socket.io-client";
 import EmojiPicker from "./EmojiPicker";
+import { buildApiUrl } from "../apiClient";
 
 type Channel = {
     id: string;
@@ -65,7 +66,7 @@ export default function Chat({
         formData.append("file", file);
 
         try {
-            const response = await fetch("http://localhost:3001/upload", {
+            const response = await fetch(buildApiUrl("/upload"), {
                 method: "POST",
                 body: formData,
             });

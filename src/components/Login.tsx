@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { buildApiUrl } from "../apiClient";
 
 type LoginProps = {
     onLoginSuccess: (token: string, username: string) => void;
@@ -17,7 +18,7 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
         setLoading(true);
 
         try {
-            const response = await fetch("http://localhost:3001/api/login", {
+            const response = await fetch(buildApiUrl("/api/login"), {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
