@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { UserProfile } from "./Layout";
 import ProfileModal from "./ProfileModal";
+import { resolveMediaUrl } from "../apiClient";
 
 type NavbarProps = {
     onMenuClick: () => void;
@@ -15,7 +16,7 @@ export default function Navbar({ onMenuClick, user, authToken, onUserUpdate, onL
 
     return (
         <>
-            <nav className="h-14 bg-[#1e1f22] border-b border-black/30 flex items-center justify-between px-4 md:px-6">
+            <nav className="h-16 bg-[#111315] border-b border-white/10 flex items-center justify-between px-4 md:px-6">
                 <div className="flex items-center gap-3">
                     <button
                         onClick={onMenuClick}
@@ -26,16 +27,16 @@ export default function Navbar({ onMenuClick, user, authToken, onUserUpdate, onL
                         <div className="w-5 h-0.5 bg-slate-300"></div>
                         <div className="w-5 h-0.5 bg-slate-300"></div>
                     </button>
-                    <h1 className="text-lg font-semibold text-slate-100">Cordor</h1>
+                    <h1 className="text-xl font-semibold text-slate-100 tracking-wide">Cordor</h1>
                 </div>
 
                 {user && (
                     <div className="flex items-center gap-3">
-                        <button onClick={() => setShowProfile(true)} className="flex items-center gap-2 hover:bg-white/10 px-2 py-1 rounded-md">
+                        <button onClick={() => setShowProfile(true)} className="flex items-center gap-2 hover:bg-white/10 px-2 py-1.5 rounded-md transition-colors">
                             {user.avatarUrl ? (
-                                <img src={user.avatarUrl} alt={user.displayName} className="w-8 h-8 rounded-full object-cover" />
+                                <img src={resolveMediaUrl(user.avatarUrl)} alt={user.displayName} className="w-8 h-8 rounded-full object-cover border border-white/10" />
                             ) : (
-                                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-sm font-semibold">
+                                <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-sm font-semibold">
                                     {user.displayName.charAt(0).toUpperCase()}
                                 </div>
                             )}
@@ -43,7 +44,7 @@ export default function Navbar({ onMenuClick, user, authToken, onUserUpdate, onL
                         </button>
                         <button
                             onClick={onLogout}
-                            className="bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-md transition-all text-sm font-medium"
+                            className="bg-slate-200 hover:bg-white text-slate-900 px-3 py-1.5 rounded-md transition-all text-sm font-semibold"
                         >
                             Logout
                         </button>

@@ -198,3 +198,42 @@ export async function fetchJson<T>(path: string, init: RequestInit, fallbackErro
 }
 
 export const getSocketBaseUrl = () => getCurrentApiBaseUrl();
+
+const isPrivateHost = (hostname: string) => {
+    const lower = hostname.toLowerCase();
+    if (lower === "localhost" || lower === "127.0.0.1" || lower === "::1") return true;
+    return /^10\./.test(lower)
+        || /^192\.168\./.test(lower)
+        || /^172\.(1[6-9]|2\d|3[01])\./.test(lower);
+};
+
+export const resolveMediaUrl = (value?: string | null) => {
+    if (!value) return "";
+
+    const mediaUrl = value.trim();
+    if (!mediaUrl) return "";
+
+    const apiBase = getCurrentApiBaseUrl();
+
+    if (mediaUrl.startsWith("/")) {
+        return `${trimTrailingSlashes(apiBase)}${mediaUrl}`;
+    }
+
+    try {
+        const parsed = new URL(mediaUrl);
+        const apiUrl = new URL(apiBase);
+
+        if (isPrivateHost(parsed.hostname)) {
+            return `${apiUrl.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+        }
+
+        if (typeof window !== "undefined" && window.location.protocol === "https:" && parsed.protocol === "http:") {
+            parsed.protocol = "https:";
+            return parsed.toString();
+        }
+
+        return parsed.toString();
+    } catch {
+        return mediaUrl;
+    }
+};

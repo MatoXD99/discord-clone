@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Socket } from "socket.io-client";
 import EmojiPicker from "./EmojiPicker";
-import { fetchJson } from "../apiClient";
+import { fetchJson, resolveMediaUrl } from "../apiClient";
 import type { UserProfile } from "./Layout";
 
 type Channel = {
@@ -92,12 +92,12 @@ export default function Chat({
     };
 
     return (
-        <div className="flex-1 flex flex-col bg-[#313338] overflow-hidden">
-            <div className="h-14 border-b border-black/20 flex items-center px-6 flex-shrink-0 bg-[#313338]">
-                <h2 className="text-lg font-semibold text-slate-100">{currentChannel ? currentChannel.name : "No channel"}</h2>
+        <div className="flex-1 flex flex-col bg-[#1a1c1f] overflow-hidden">
+            <div className="h-16 border-b border-white/10 flex items-center px-6 flex-shrink-0 bg-[#17191c]">
+                <h2 className="text-lg font-semibold text-slate-100 tracking-wide">{currentChannel ? currentChannel.name : "No channel"}</h2>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 md:px-8 py-5 space-y-1">
+            <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-1">
                 {messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-slate-400">
                         <p className="text-base">No messages yet. Start the conversation!</p>
@@ -136,9 +136,9 @@ export default function Chat({
                                     <div className={`w-9 h-9 ${showHeader ? "opacity-100" : "opacity-0"}`}>
                                         {showHeader && (
                                             msg.avatarUrl ? (
-                                                <img src={msg.avatarUrl} alt={msg.displayName || msg.username} className="w-9 h-9 rounded-full object-cover" />
+                                                <img src={resolveMediaUrl(msg.avatarUrl)} alt={msg.displayName || msg.username} className="w-9 h-9 rounded-full object-cover border border-white/10" />
                                             ) : (
-                                                <div className="w-9 h-9 rounded-full bg-slate-600 flex items-center justify-center text-xs font-semibold text-slate-200">{avatarFallback}</div>
+                                                <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold text-slate-200">{avatarFallback}</div>
                                             )
                                         )}
                                     </div>
@@ -153,15 +153,15 @@ export default function Chat({
 
                                         {msg.type === "image" ? (
                                             <img
-                                                src={msg.fileUrl}
+                                                src={resolveMediaUrl(msg.fileUrl)}
                                                 alt="shared"
                                                 className={`max-w-sm rounded-2xl border border-white/10 ${isOwn ? "rounded-br-md" : "rounded-bl-md"} ${groupedWithNext ? "mb-0.5" : ""}`}
                                             />
                                         ) : (
                                             <p
                                                 className={`px-4 py-2.5 text-sm leading-relaxed break-words shadow ${isOwn
-                                                    ? "bg-[#5865f2] text-white"
-                                                    : "bg-[#383a40] text-slate-100"
+                                                    ? "bg-slate-200 text-slate-900"
+                                                    : "bg-[#2b2f35] text-slate-100"
                                                     } ${isOwn
                                                         ? (groupedWithPrev ? "rounded-2xl rounded-tr-lg" : "rounded-3xl rounded-br-lg")
                                                         : (groupedWithPrev ? "rounded-2xl rounded-tl-lg" : "rounded-3xl rounded-bl-lg")
@@ -180,7 +180,7 @@ export default function Chat({
             </div>
 
             {isUploading && (
-                <div className="bg-[#5865f2] text-white px-6 py-2 text-sm border-t border-black/20">
+                <div className="bg-slate-800 text-slate-100 px-6 py-2 text-sm border-t border-white/10">
                     Uploading image...
                 </div>
             )}
@@ -236,8 +236,8 @@ function MessageInput({
     };
 
     return (
-        <div className="bg-[#313338] border-t border-black/20 p-4 md:p-6 flex-shrink-0 relative">
-            <div className="flex gap-2 items-center bg-[#383a40] rounded-xl px-3 py-2">
+        <div className="bg-[#17191c] border-t border-white/10 p-4 md:p-6 flex-shrink-0 relative">
+            <div className="flex gap-2 items-center bg-[#23272d] rounded-xl px-3 py-2 border border-white/5">
                 <button
                     onClick={() => fileInputRef.current?.click()}
                     className="hover:bg-white/10 text-slate-200 p-2 rounded-md transition-all"
@@ -274,7 +274,7 @@ function MessageInput({
 
                 <button
                     onClick={handleSend}
-                    className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-4 py-2 rounded-md text-sm font-medium"
+                    className="bg-slate-200 hover:bg-white text-slate-900 px-4 py-2 rounded-md text-sm font-medium"
                 >
                     Send
                 </button>

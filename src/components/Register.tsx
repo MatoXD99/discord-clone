@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { fetchJson } from "../apiClient";
+
 import type { UserProfile } from "./Layout";
 
 type RegisterProps = {
@@ -18,7 +19,6 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
         e.preventDefault();
         setError("");
 
-        // Validation
         if (password !== confirmPassword) {
             setError("Passwords do not match");
             return;
@@ -32,7 +32,6 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
         setLoading(true);
 
         try {
-            // Register
             await fetchJson<{ id: number; username: string }>("/api/register", {
                 method: "POST",
                 headers: {
@@ -41,7 +40,6 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
                 body: JSON.stringify({ username, password }),
             }, "Registration failed");
 
-            // Auto-login after registration
             const { token, user } = await fetchJson<{ token: string; user: UserProfile }>("/api/login", {
                 method: "POST",
                 headers: {
@@ -61,56 +59,50 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-red-950 to-slate-950 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-red-900/50 p-12 rounded-2xl shadow-2xl max-w-md w-full backdrop-blur">
-                <h1 className="text-4xl font-bold text-red-400 mb-3">Join Chat Hub</h1>
-                <p className="text-red-200/70 mb-10 text-lg">Create your account</p>
+        <div className="min-h-screen bg-[#0c0e11] flex items-center justify-center p-6">
+            <div className="bg-[#14171b] border border-white/10 p-8 md:p-10 rounded-2xl shadow-2xl max-w-md w-full">
+                <h1 className="text-3xl font-bold text-slate-100 mb-2">Join Chat Hub</h1>
+                <p className="text-slate-400 mb-8 text-base">Create your account.</p>
 
                 {error && (
-                    <div className="bg-red-600/80 text-white p-4 rounded-lg mb-6 text-sm border border-red-400/50">
+                    <div className="bg-slate-800 text-slate-100 p-4 rounded-lg mb-6 text-sm border border-slate-600/60">
                         ⚠️ {error}
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <form onSubmit={handleSubmit} className="space-y-5">
                     <div>
-                        <label className="block text-red-300 text-sm font-semibold mb-3">
-                            Username
-                        </label>
+                        <label className="block text-slate-300 text-sm font-semibold mb-2">Username</label>
                         <input
                             type="text"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                             placeholder="Choose a username"
-                            className="w-full bg-slate-800 text-white placeholder-slate-500 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-red-600 border border-slate-700 transition-all"
+                            className="w-full bg-[#0f1216] text-white placeholder-slate-500 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-slate-500 border border-white/10 transition-all"
                             disabled={loading}
                         />
                     </div>
 
                     <div>
-                        <label className="block text-red-300 text-sm font-semibold mb-3">
-                            Password
-                        </label>
+                        <label className="block text-slate-300 text-sm font-semibold mb-2">Password</label>
                         <input
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             placeholder="Create a password"
-                            className="w-full bg-slate-800 text-white placeholder-slate-500 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-red-600 border border-slate-700 transition-all"
+                            className="w-full bg-[#0f1216] text-white placeholder-slate-500 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-slate-500 border border-white/10 transition-all"
                             disabled={loading}
                         />
                     </div>
 
                     <div>
-                        <label className="block text-red-300 text-sm font-semibold mb-3">
-                            Confirm Password
-                        </label>
+                        <label className="block text-slate-300 text-sm font-semibold mb-2">Confirm Password</label>
                         <input
                             type="password"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             placeholder="Confirm your password"
-                            className="w-full bg-slate-800 text-white placeholder-slate-500 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-red-600 border border-slate-700 transition-all"
+                            className="w-full bg-[#0f1216] text-white placeholder-slate-500 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-slate-500 border border-white/10 transition-all"
                             disabled={loading}
                         />
                     </div>
@@ -118,17 +110,17 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
                     <button
                         type="submit"
                         disabled={loading}
-                        className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:from-red-800 disabled:to-red-900 text-white font-bold py-3 rounded-lg transition-all shadow-lg hover:shadow-red-600/50"
+                        className="w-full bg-slate-200 hover:bg-white disabled:bg-slate-500 text-slate-900 font-bold py-3 rounded-lg transition-all"
                     >
                         {loading ? "Creating account..." : "Register"}
                     </button>
                 </form>
 
-                <p className="text-red-200/60 text-center mt-8">
+                <p className="text-slate-400 text-center mt-8">
                     Already have an account?{" "}
                     <button
                         onClick={onSwitchToLogin}
-                        className="text-red-400 hover:text-red-300 font-semibold transition-colors"
+                        className="text-slate-100 hover:text-white font-semibold transition-colors"
                     >
                         Log in here
                     </button>

@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { fetchJson } from "../apiClient";
+import { fetchJson, resolveMediaUrl } from "../apiClient";
 import type { UserProfile } from "./Layout";
 
 type ProfileModalProps = {
@@ -78,7 +78,7 @@ export default function ProfileModal({ authToken, user, onClose, onUserUpdate }:
 
     return (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
-            <div className="w-full max-w-xl rounded-2xl border border-slate-600 bg-[#1e1f22] p-6" onClick={(event) => event.stopPropagation()}>
+            <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#15181c] p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-xl font-semibold text-slate-100">My Profile</h2>
                     <button onClick={onClose} className="text-slate-400 hover:text-slate-200">✕</button>
@@ -86,9 +86,9 @@ export default function ProfileModal({ authToken, user, onClose, onUserUpdate }:
 
                 <div className="flex items-center gap-4 mb-6">
                     {user.avatarUrl ? (
-                        <img src={user.avatarUrl} alt={user.displayName} className="w-16 h-16 rounded-full object-cover" />
+                        <img src={resolveMediaUrl(user.avatarUrl)} alt={user.displayName} className="w-16 h-16 rounded-full object-cover border border-white/10" />
                     ) : (
-                        <div className="w-16 h-16 rounded-full bg-indigo-500 flex items-center justify-center font-semibold text-lg">{avatarInitial}</div>
+                        <div className="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center font-semibold text-lg">{avatarInitial}</div>
                     )}
                     <div>
                         <p className="font-semibold">{user.displayName}</p>
@@ -96,7 +96,7 @@ export default function ProfileModal({ authToken, user, onClose, onUserUpdate }:
                     </div>
                     <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="ml-auto bg-[#5865f2] hover:bg-[#4752c4] px-3 py-2 rounded-md text-sm"
+                        className="ml-auto bg-slate-200 hover:bg-white text-slate-900 px-3 py-2 rounded-md text-sm font-medium"
                         disabled={isUploading}
                     >
                         {isUploading ? "Uploading..." : "Upload picture"}
@@ -128,8 +128,8 @@ export default function ProfileModal({ authToken, user, onClose, onUserUpdate }:
                     {status && <p className="text-sm text-slate-300">{status}</p>}
 
                     <div className="flex justify-end gap-2">
-                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-slate-700 hover:bg-slate-600">Close</button>
-                        <button type="submit" disabled={isSaving} className="px-4 py-2 rounded-md bg-[#5865f2] hover:bg-[#4752c4] disabled:opacity-70">
+                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-100">Close</button>
+                        <button type="submit" disabled={isSaving} className="px-4 py-2 rounded-md bg-slate-200 hover:bg-white text-slate-900 disabled:opacity-70 font-medium">
                             {isSaving ? "Saving..." : "Save profile"}
                         </button>
                     </div>
