@@ -6,9 +6,18 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient({});
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
+export function serializeUser(user) {
+    return {
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName || user.username,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+    };
+}
+
 // Register a new user
 export async function register(username, password) {
-    // Check if user already exists
     const existingUser = await prisma.user.findUnique({
         where: { username },
     });
@@ -17,23 +26,21 @@ export async function register(username, password) {
         throw new Error("Username already exists");
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
     const user = await prisma.user.create({
         data: {
             username,
             password: hashedPassword,
+            displayName: username,
         },
     });
 
-    return { id: user.id, username: user.username };
+    return serializeUser(user);
 }
 
 // Login user and return JWT
 export async function login(username, password) {
-    // Find user
     const user = await prisma.user.findUnique({
         where: { username },
     });
@@ -42,27 +49,25 @@ export async function login(username, password) {
         throw new Error("User not found");
     }
 
-    // Verify password
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
         throw new Error("Invalid password");
     }
 
-    // Generate JWT
     const token = jwt.sign(
         { id: user.id, username: user.username },
         JWT_SECRET,
         { expiresIn: "24h" }
     );
 
-    return { token, user: { id: user.id, username: user.username } };
+    return { token, user: serializeUser(user) };
 }
 
 // Verify JWT token
 export function verifyToken(token) {
     try {
         return jwt.verify(token, JWT_SECRET);
-    } catch (error) {
+    } catch {
         throw new Error("Invalid token");
     }
 }

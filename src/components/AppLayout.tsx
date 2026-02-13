@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import Sidebar from "./Sidebar";
 import ChatArea from "./ChatArea";
 
@@ -14,6 +14,8 @@ export default function AppLayout() {
     return (
         <div className="flex h-screen bg-gray-900 text-white">
             <Sidebar
+                isOpen
+                onClose={() => {}}
                 channels={channels}
                 activeChannel={activeChannel}
                 onChannelSelect={setActiveChannel}

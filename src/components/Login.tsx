@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { clearPreferredApiBaseUrl, fetchJson, getCurrentApiBaseUrl, setPreferredApiBaseUrl } from "../apiClient";
 
+import type { UserProfile } from "./Layout";
+
 type LoginProps = {
-    onLoginSuccess: (token: string, username: string) => void;
+    onLoginSuccess: (token: string, user: UserProfile) => void;
     onSwitchToRegister: () => void;
 };
 
@@ -21,7 +23,7 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
         setLoading(true);
 
         try {
-            const { token, user } = await fetchJson<{ token: string; user: { username: string } }>("/api/login", {
+            const { token, user } = await fetchJson<{ token: string; user: UserProfile }>("/api/login", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -29,7 +31,7 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
                 body: JSON.stringify({ username, password }),
             }, "Login failed");
             localStorage.setItem("authToken", token);
-            onLoginSuccess(token, user.username);
+            onLoginSuccess(token, user);
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : "Login failed";
             console.error("Login error:", err);
