@@ -1,0 +1,26 @@
+[
+  {
+    "type": "text",
+    "username": "Chilly1G",
+    "text": "test",
+    "timestamp": "2026-02-13T22:12:29.449Z"
+  },
+  {
+    "type": "text",
+    "username": "Chilly1G",
+    "text": "dasdas",
+    "timestamp": "2026-02-13T22:12:40.964Z"
+  },
+  {
+    "type": "text",
+    "username": "test123",
+    "text": "🎨",
+    "timestamp": "2026-02-13T22:12:44.389Z"
+  },
+  {
+    "type": "image",
+    "username": "Chilly1G",
+    "fileUrl": "http://localhost:3001/uploads/1771021019354-Sticker.png",
+    "timestamp": "2026-02-13T22:16:59.360Z"
+  }
+]
