@@ -5,6 +5,7 @@ import Register from "./Register";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
 import Chat from "./Chat";
+import { API_BASE_URL } from "../apiClient";
 
 type Channel = {
     id: string;
@@ -48,7 +49,7 @@ export default function Layout() {
 
         console.log("🔄 Attempting Socket.IO connection with token:", authToken.substring(0, 20) + "...");
 
-        const newSocket = io("http://localhost:3001", {
+        const newSocket = io(API_BASE_URL, {
             auth: {
                 token: authToken,
             },
@@ -156,7 +157,7 @@ export default function Layout() {
                         <div className="mb-4 text-6xl">🔌</div>
                         <h2 className="text-2xl font-bold mb-2">Connecting to server...</h2>
                         <p className="text-gray-400">
-                            Make sure the backend server is running on port 3001
+                            Make sure your backend API/socket server is reachable
                         </p>
                     </div>
                 ) : (

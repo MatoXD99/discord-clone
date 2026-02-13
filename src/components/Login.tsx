@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { fetchJson } from "../apiClient";
 
 type LoginProps = {
     onLoginSuccess: (token: string, username: string) => void;
@@ -17,20 +18,13 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
         setLoading(true);
 
         try {
-            const response = await fetch("http://localhost:3001/api/login", {
+            const { token, user } = await fetchJson<{ token: string; user: { username: string } }>("/api/login", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ username, password }),
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || "Login failed");
-            }
-
-            const { token, user } = await response.json();
+            }, "Login failed");
             localStorage.setItem("authToken", token);
             onLoginSuccess(token, user.username);
         } catch (err) {
