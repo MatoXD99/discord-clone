@@ -5,7 +5,7 @@ import Register from "./Register";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
 import Chat from "./Chat";
-import { API_BASE_URL } from "../apiClient";
+import { getSocketBaseUrl } from "../apiClient";
 
 type Channel = {
     id: string;
@@ -47,9 +47,10 @@ export default function Layout() {
     useEffect(() => {
         if (!isAuthenticated || !authToken) return;
 
-        console.log("🔄 Attempting Socket.IO connection with token:", authToken.substring(0, 20) + "...");
+        const socketBaseUrl = getSocketBaseUrl();
+        console.log("🔄 Attempting Socket.IO connection with token:", authToken.substring(0, 20) + "...", "base:", socketBaseUrl);
 
-        const newSocket = io(API_BASE_URL, {
+        const newSocket = io(socketBaseUrl, {
             auth: {
                 token: authToken,
             },
