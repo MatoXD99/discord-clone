@@ -9,7 +9,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { PrismaClient } from "@prisma/client";
 import { register, login, verifyToken, serializeUser } from "./auth.js";
-import { setupSocketHandlers, getChannels } from "./socket.js";
+import { setupSocketHandlers, getServersWithChannels } from "./socket.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -202,8 +202,26 @@ app.post("/api/me/avatar", requireAuth, upload.single("file"), async (req, res) 
     }
 });
 
-app.get("/api/channels", (req, res) => {
-    res.json(getChannels());
+app.get("/api/servers", requireAuth, async (req, res) => {
+    const servers = await getServersWithChannels();
+    res.json({ servers });
+});
+
+app.get("/api/users", requireAuth, async (req, res) => {
+    const users = await prisma.user.findMany({
+        where: { id: { not: req.userId } },
+        orderBy: { username: "asc" },
+        select: { id: true, username: true, displayName: true, avatarUrl: true },
+    });
+
+    res.json({
+        users: users.map((u) => ({
+            id: u.id,
+            username: u.username,
+            displayName: u.displayName || u.username,
+            avatarUrl: u.avatarUrl,
+        })),
+    });
 });
 
 app.get("/", (req, res) => {
