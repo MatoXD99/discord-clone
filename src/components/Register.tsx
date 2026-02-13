@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { buildApiUrl } from "../apiClient";
 
 type RegisterProps = {
     onRegisterSuccess: (token: string, username: string) => void;
@@ -31,7 +32,7 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
 
         try {
             // Register
-            const registerResponse = await fetch("http://localhost:3001/api/register", {
+            const registerResponse = await fetch(buildApiUrl("/api/register"), {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -45,7 +46,7 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
             }
 
             // Auto-login after registration
-            const loginResponse = await fetch("http://localhost:3001/api/login", {
+            const loginResponse = await fetch(buildApiUrl("/api/login"), {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
