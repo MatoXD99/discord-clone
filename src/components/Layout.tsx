@@ -207,6 +207,7 @@ export default function Layout() {
                             onAddFriend={(targetUserId) => socket?.emit("send_friend_request", targetUserId)}
                             onRespondFriendRequest={(requestId, accept) => socket?.emit("respond_friend_request", { requestId, accept })}
                             onStartDm={(targetUserId) => socket?.emit("start_dm", targetUserId)}
+                            socket={socket}
                         />
                         {socket && user && (
                             <Chat
