@@ -1,5 +1,7 @@
+import type { Socket } from "socket.io-client";
 import type { DmConversation, FriendshipState, ServerItem, UserSummary } from "./Layout";
 import { resolveMediaUrl } from "../apiClient";
+import VoiceChannel from "./VoiceChannel";
 
 type SidebarProps = {
     isOpen: boolean;
@@ -19,12 +21,13 @@ type SidebarProps = {
     onAddFriend: (userId: number) => void;
     onRespondFriendRequest: (requestId: number, accept: boolean) => void;
     onStartDm: (userId: number) => void;
+    socket: Socket | null;
 };
 
 export default function Sidebar(props: SidebarProps) {
     const {
         isOpen, onClose, servers, activeServerId, onServerSelect, activeChannelId, onChannelSelect,
-        users, friendships, dmList, activeView, activeDmId, onSelectFriends, onSelectDm, onAddFriend, onRespondFriendRequest, onStartDm,
+        users, friendships, dmList, activeView, activeDmId, onSelectFriends, onSelectDm, onAddFriend, onRespondFriendRequest, onStartDm, socket,
     } = props;
 
     const activeServer = servers.find((server) => server.id === activeServerId) || servers[0];
@@ -81,6 +84,9 @@ export default function Sidebar(props: SidebarProps) {
                                 </div>
                             ))}
                         </div>
+
+
+                        {socket && <VoiceChannel socket={socket} isLakeHouse={activeServer?.name === "Lake House"} />}
 
                         {activeView === "friends" && (
                             <>
