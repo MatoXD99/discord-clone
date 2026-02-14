@@ -1,5 +1,6 @@
 const trimTrailingSlashes = (value: string) => value.replace(/\/+$/, "");
 const PREFERRED_API_BASE_STORAGE_KEY = "preferredApiBaseUrl";
+const FORWARDED_SIGNALING_BASE_URL = "https://api.discord.slovenitech.si";
 
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
 const explicitApiBaseUrl = rawApiBaseUrl ? trimTrailingSlashes(rawApiBaseUrl) : null;
@@ -98,10 +99,10 @@ export const getApiBaseCandidates = () => {
     const port3001 = port ? null : `${protocol}//${hostname}:3001`;
 
     if (explicitApiBaseUrl) {
-        return unique([explicitApiBaseUrl, queryApiBase, preferred]);
+        return unique([explicitApiBaseUrl, queryApiBase, preferred, FORWARDED_SIGNALING_BASE_URL]);
     }
 
-    return unique([queryApiBase, preferred, origin, apiSubdomain, port3001]);
+    return unique([queryApiBase, preferred, FORWARDED_SIGNALING_BASE_URL, origin, apiSubdomain, port3001]);
 };
 
 export const API_BASE_URL = explicitApiBaseUrl || readPreferredApiBase() || (typeof window !== "undefined" ? window.location.origin : "");
@@ -197,7 +198,15 @@ export async function fetchJson<T>(path: string, init: RequestInit, fallbackErro
     throw new Error(`${reason}. Tried: ${attempted}`);
 }
 
-export const getSocketBaseUrl = () => getCurrentApiBaseUrl();
+export const getSocketBaseUrl = () => {
+    const explicitSocketBase = import.meta.env.VITE_SOCKET_BASE_URL?.trim();
+    if (explicitSocketBase) return trimTrailingSlashes(explicitSocketBase);
+
+    const candidates = getApiBaseCandidates();
+    if (candidates.includes(FORWARDED_SIGNALING_BASE_URL)) return FORWARDED_SIGNALING_BASE_URL;
+
+    return FORWARDED_SIGNALING_BASE_URL || candidates[0] || getCurrentApiBaseUrl();
+};
 
 const isPrivateHost = (hostname: string) => {
     const lower = hostname.toLowerCase();

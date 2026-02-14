@@ -1,28 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Socket } from "socket.io-client";
 
-type VoicePeer = { socketId: string; userId: number; displayName: string };
+const VOICE_ROOM_ID = "living-room";
 
-type VoiceChannelProps = {
-    socket: Socket;
-    isLakeHouse: boolean;
-};
-
-const rtcConfig: RTCConfiguration = {
+const rtcConfig = {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-export default function VoiceChannel({ socket, isLakeHouse }: VoiceChannelProps) {
+export default function VoiceChannel({ socket, isLakeHouse }) {
     const [isJoined, setIsJoined] = useState(false);
     const [isJoining, setIsJoining] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [voiceUsers, setVoiceUsers] = useState<VoicePeer[]>([]);
-    const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
+    const [error, setError] = useState(null);
+    const [voiceUsers, setVoiceUsers] = useState([]);
+    const [remoteStreams, setRemoteStreams] = useState({});
 
-    const localStreamRef = useRef<MediaStream | null>(null);
-    const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+    const localStreamRef = useRef(null);
+    const peerConnectionsRef = useRef(new Map());
 
-    const closePeerConnection = useCallback((peerSocketId: string) => {
+    const closePeerConnection = useCallback((peerSocketId) => {
         const existing = peerConnectionsRef.current.get(peerSocketId);
         if (!existing) return;
 
@@ -30,6 +24,7 @@ export default function VoiceChannel({ socket, isLakeHouse }: VoiceChannelProps)
         existing.ontrack = null;
         existing.close();
         peerConnectionsRef.current.delete(peerSocketId);
+
         setRemoteStreams((prev) => {
             const next = { ...prev };
             delete next[peerSocketId];
@@ -37,29 +32,31 @@ export default function VoiceChannel({ socket, isLakeHouse }: VoiceChannelProps)
         });
     }, []);
 
-    const createPeerConnection = useCallback((peerSocketId: string) => {
+    const createPeerConnection = useCallback((peerSocketId) => {
         const existing = peerConnectionsRef.current.get(peerSocketId);
         if (existing) return existing;
 
         const localStream = localStreamRef.current;
         if (!localStream) throw new Error("Local audio stream is required before creating peer connection");
 
-        // Each remote peer gets its own RTCPeerConnection (mesh approach).
+        // Mesh topology: one RTCPeerConnection per remote user.
         const peerConnection = new RTCPeerConnection(rtcConfig);
 
-        // Send our local microphone track to the remote peer.
+        // Send the local microphone stream to this remote peer.
         localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
 
-        // ICE candidates are network hints; relay them through Socket.IO signaling.
+        // Forward ICE candidates over Socket.IO signaling.
         peerConnection.onicecandidate = (event) => {
             if (!event.candidate) return;
+
             socket.emit("webrtc_ice_candidate", {
+                roomId: VOICE_ROOM_ID,
                 targetSocketId: peerSocketId,
                 candidate: event.candidate,
             });
         };
 
-        // Remote audio arrives here; save it so we can render it in an <audio> tag.
+        // Attach incoming remote audio stream to rendered <audio> elements.
         peerConnection.ontrack = (event) => {
             const [remoteStream] = event.streams;
             if (!remoteStream) return;
@@ -79,7 +76,8 @@ export default function VoiceChannel({ socket, isLakeHouse }: VoiceChannelProps)
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             localStreamRef.current = stream;
             setIsJoined(true);
-            socket.emit("join_voice_channel");
+
+            socket.emit("join_voice_channel", { roomId: VOICE_ROOM_ID });
         } catch (joinError) {
             console.error("Failed to join voice channel:", joinError);
             setError("Microphone permission is required to join voice.");
@@ -89,7 +87,7 @@ export default function VoiceChannel({ socket, isLakeHouse }: VoiceChannelProps)
     }, [isJoined, isJoining, socket]);
 
     const handleLeave = useCallback(() => {
-        socket.emit("leave_voice_channel");
+        socket.emit("leave_voice_channel", { roomId: VOICE_ROOM_ID });
 
         peerConnectionsRef.current.forEach((_, peerSocketId) => closePeerConnection(peerSocketId));
 
@@ -105,46 +103,71 @@ export default function VoiceChannel({ socket, isLakeHouse }: VoiceChannelProps)
     }, [closePeerConnection, socket]);
 
     useEffect(() => {
-        const onVoiceUsersChanged = async ({ users }: { users: VoicePeer[] }) => {
-            setVoiceUsers(users || []);
+        const onVoiceUsersChanged = async ({ roomId, users }) => {
+            if (roomId && roomId !== VOICE_ROOM_ID) return;
+
+            const nextUsers = users || [];
+            setVoiceUsers(nextUsers);
+
             if (!isJoined || !socket.id) return;
 
-            const activePeerIds = new Set((users || []).map((peer) => peer.socketId).filter((peerId) => peerId !== socket.id));
+            const activePeerIds = new Set(nextUsers
+                .map((peer) => peer.socketId)
+                .filter((peerSocketId) => peerSocketId !== socket.id));
 
             peerConnectionsRef.current.forEach((_, peerSocketId) => {
-                if (!activePeerIds.has(peerSocketId)) closePeerConnection(peerSocketId);
+                if (!activePeerIds.has(peerSocketId)) {
+                    closePeerConnection(peerSocketId);
+                }
             });
 
+            // Joiner creates offers for peers that do not have a connection yet.
             for (const peerSocketId of activePeerIds) {
                 if (peerConnectionsRef.current.has(peerSocketId)) continue;
 
                 const peerConnection = createPeerConnection(peerSocketId);
-                // New joiner creates the offer and sends it via signaling server.
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
-                socket.emit("webrtc_offer", { targetSocketId: peerSocketId, sdp: offer });
+
+                socket.emit("webrtc_offer", {
+                    roomId: VOICE_ROOM_ID,
+                    targetSocketId: peerSocketId,
+                    sdp: offer,
+                });
             }
         };
 
-        const onOffer = async ({ sourceSocketId, sdp }: { sourceSocketId: string; sdp: RTCSessionDescriptionInit }) => {
-            if (!isJoined) return;
-            const peerConnection = createPeerConnection(sourceSocketId);
+        const onOffer = async ({ sourceSocketId, targetSocketId, roomId, sdp }) => {
+            if (!isJoined || roomId !== VOICE_ROOM_ID || targetSocketId !== socket.id || sourceSocketId === socket.id) return;
 
+            const peerConnection = createPeerConnection(sourceSocketId);
             await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
-            socket.emit("webrtc_answer", { targetSocketId: sourceSocketId, sdp: answer });
+
+            socket.emit("webrtc_answer", {
+                roomId: VOICE_ROOM_ID,
+                targetSocketId: sourceSocketId,
+                sdp: answer,
+            });
         };
 
-        const onAnswer = async ({ sourceSocketId, sdp }: { sourceSocketId: string; sdp: RTCSessionDescriptionInit }) => {
+        const onAnswer = async ({ sourceSocketId, targetSocketId, roomId, sdp }) => {
+            if (roomId !== VOICE_ROOM_ID || targetSocketId !== socket.id || sourceSocketId === socket.id) return;
+
             const peerConnection = peerConnectionsRef.current.get(sourceSocketId);
             if (!peerConnection) return;
+
             await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
         };
 
-        const onIceCandidate = async ({ sourceSocketId, candidate }: { sourceSocketId: string; candidate: RTCIceCandidateInit }) => {
+        const onIceCandidate = async ({ sourceSocketId, targetSocketId, roomId, candidate }) => {
+            if (roomId !== VOICE_ROOM_ID || targetSocketId !== socket.id || sourceSocketId === socket.id) return;
+
             const peerConnection = peerConnectionsRef.current.get(sourceSocketId);
             if (!peerConnection) return;
+
             await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
         };
 
@@ -163,16 +186,13 @@ export default function VoiceChannel({ socket, isLakeHouse }: VoiceChannelProps)
         };
     }, [closePeerConnection, createPeerConnection, isJoined, socket]);
 
-    useEffect(() => {
-        const peerConnections = peerConnectionsRef.current;
+    useEffect(() => () => {
+        peerConnectionsRef.current.forEach((_, peerSocketId) => closePeerConnection(peerSocketId));
 
-        return () => {
-            peerConnections.forEach((_, peerSocketId) => closePeerConnection(peerSocketId));
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach((track) => track.stop());
-                localStreamRef.current = null;
-            }
-        };
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach((track) => track.stop());
+            localStreamRef.current = null;
+        }
     }, [closePeerConnection]);
 
     if (!isLakeHouse) return null;
@@ -199,7 +219,9 @@ export default function VoiceChannel({ socket, isLakeHouse }: VoiceChannelProps)
                         key={peerSocketId}
                         autoPlay
                         ref={(node) => {
-                            if (node && node.srcObject !== stream) node.srcObject = stream;
+                            if (node && node.srcObject !== stream) {
+                                node.srcObject = stream;
+                            }
                         }}
                     />
                 ))}
