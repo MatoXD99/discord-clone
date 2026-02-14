@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
+import { AccessToken } from "livekit-server-sdk";
 import { register, login, verifyToken, serializeUser } from "./auth.js";
 import { setupSocketHandlers, getServersWithChannels } from "./socket.js";
 
@@ -227,6 +228,41 @@ app.get("/api/users", requireAuth, async (req, res) => {
             avatarUrl: u.avatarUrl,
         })),
     });
+});
+
+app.get("/api/livekit/token", requireAuth, async (req, res) => {
+    try {
+        const { roomId } = req.query;
+
+        if (!roomId) {
+            return res.status(400).json({ error: "roomId is required" });
+        }
+
+        if (!process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET) {
+            return res.status(500).json({ error: "LiveKit credentials not configured" });
+        }
+
+        const user = await prisma.user.findUnique({ where: { id: req.userId } });
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const at = new AccessToken(
+            process.env.LIVEKIT_API_KEY,
+            process.env.LIVEKIT_API_SECRET,
+            {
+                identity: req.userId,
+                name: user.displayName || user.username,
+            }
+        );
+
+        at.addGrant({ roomJoin: true, room: `voice-${roomId}`, canPublish: true, canPublishData: true });
+
+        res.json({ token: at.toJwt() });
+    } catch (error) {
+        console.error("LiveKit token error:", error);
+        res.status(500).json({ error: "Failed to generate token" });
+    }
 });
 
 app.get("/", (req, res) => {

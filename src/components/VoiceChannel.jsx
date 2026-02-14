@@ -1,179 +1,93 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Room } from "livekit-client";
 
 const VOICE_ROOM_ID = "living-room";
+const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || "wss://live.discord.slovenitech.si";
 
-const rtcConfig = {
-    iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        {
-            urls: [
-                "turn:discord.slovenitech.si:3478?transport=udp",
-                "turn:discord.slovenitech.si:3478?transport=tcp"
-            ],
-            username: "voiceuser",
-            credential: "strongpassword",
-        },
-    ],
-};
+// Speaking indicator styles
+const speakingStyles = `
+    @keyframes speakingPulse {
+        0%, 100% {
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+        }
+        50% {
+            box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
+        }
+    }
+    .speaking-indicator {
+        animation: speakingPulse 1.5s infinite;
+    }
+`;
 
 // Connection state type: "idle" | "connecting" | "connected" | "failed"
 // ICE state type: "new" | "checking" | "connected" | "completed" | "failed" | "disconnected"
+
+// Sound effect utilities
+const playSound = (type, enabled = true) => {
+    if (!enabled) return;
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        const frequencies = {
+            join: 523.25,      // C5
+            leave: 329.63,     // E4
+            shareStart: 659.25, // E5
+            shareStop: 392.00,  // G4
+            mute: 440.00,       // A4
+            deafen: 349.23,     // F4
+        };
+
+        const freq = frequencies[type] || 440;
+        const duration = 0.2;
+        const now = audioContext.currentTime;
+
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+
+        osc.frequency.value = freq;
+        osc.type = "sine";
+
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+        osc.start(now);
+        osc.stop(now + duration);
+    } catch (err) {
+        console.debug("Sound effect error:", err);
+    }
+};
 
 export default function VoiceChannel({ socket, isLakeHouse }) {
     const [isJoined, setIsJoined] = useState(false);
     const [isJoining, setIsJoining] = useState(false);
     const [error, setError] = useState(null);
     const [voiceUsers, setVoiceUsers] = useState([]);
-    const [remoteStreams, setRemoteStreams] = useState({}); // audio streams
-    const [remoteScreenShares, setRemoteScreenShares] = useState({}); // video streams from screen share
+    const [remoteScreenShares, setRemoteScreenShares] = useState({}); // participant sid -> video track
 
-    // Connection status tracking
-    const [connectionStatus, setConnectionStatus] = useState("idle"); // idle | connecting | connected | failed
-    const [iceStates, setIceStates] = useState({}); // { peerSocketId: state }
-    const [rtcStates, setRtcStates] = useState({}); // { peerSocketId: state }
-
-    // Screen sharing state
-    const [isScreenSharing, setIsScreenSharing] = useState(false);
-    const [screenShareError, setScreenShareError] = useState(null);
-    const [selectedScreenPeer, setSelectedScreenPeer] = useState(null); // which peer's screen to display
-    const [peersWithScreenShare, setPeersWithScreenShare] = useState(new Set()); // track who's sharing
+    // Connection status
+    const [connectionStatus, setConnectionStatus] = useState("idle");
 
     // Mute/deafen state
     const [isMuted, setIsMuted] = useState(false);
     const [isDeafened, setIsDeafened] = useState(false);
 
-    const localStreamRef = useRef(null);
-    const screenShareStreamRef = useRef(null);
-    const screenShareSendersRef = useRef(new Map()); // { peerSocketId: RTCRtpSender }
-    const peerConnectionsRef = useRef(new Map());
+    // Screen sharing state
+    const [isScreenSharing, setIsScreenSharing] = useState(false);
+    const [screenShareError, setScreenShareError] = useState(null);
+    const [selectedScreenPeer, setSelectedScreenPeer] = useState(null);
+    const [peersWithScreenShare, setPeersWithScreenShare] = useState(new Set());
 
-    const closePeerConnection = useCallback((peerSocketId) => {
-        const existing = peerConnectionsRef.current.get(peerSocketId);
-        if (!existing) return;
+    // Speaking indicator
+    const [speakingUsers, setSpeakingUsers] = useState(new Set());
 
-        existing.onicecandidate = null;
-        existing.ontrack = null;
-        existing.oniceconnectionstatechange = null;
-        existing.onconnectionstatechange = null;
-        existing.onicegatheringstatechange = null;
-        existing.close();
-        peerConnectionsRef.current.delete(peerSocketId);
+    // Sound effects enabled
+    const [soundsEnabled, setSoundsEnabled] = useState(true);
 
-        // Clean up screen share sender
-        screenShareSendersRef.current.delete(peerSocketId);
-
-        setRemoteStreams((prev) => {
-            const next = { ...prev };
-            delete next[peerSocketId];
-            return next;
-        });
-
-        setRemoteScreenShares((prev) => {
-            const next = { ...prev };
-            delete next[peerSocketId];
-            return next;
-        });
-
-        setPeersWithScreenShare((prev) => {
-            const next = new Set(prev);
-            next.delete(peerSocketId);
-            return next;
-        });
-
-        // Clear state for this peer
-        setIceStates((prev) => {
-            const next = { ...prev };
-            delete next[peerSocketId];
-            return next;
-        });
-        setRtcStates((prev) => {
-            const next = { ...prev };
-            delete next[peerSocketId];
-            return next;
-        });
-    }, []);
-
-    const createPeerConnection = useCallback((peerSocketId) => {
-        const existing = peerConnectionsRef.current.get(peerSocketId);
-        if (existing) return existing;
-
-        const localStream = localStreamRef.current;
-        if (!localStream) throw new Error("Local audio stream is required before creating peer connection");
-
-        // Mesh topology: one RTCPeerConnection per remote user.
-        const peerConnection = new RTCPeerConnection(rtcConfig);
-
-        // Send the local microphone stream to this remote peer.
-        localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
-
-        // If screen sharing, add screen tracks to this connection
-        if (screenShareStreamRef.current) {
-            screenShareStreamRef.current.getTracks().forEach((track) => {
-                const sender = peerConnection.addTrack(track, screenShareStreamRef.current);
-                screenShareSendersRef.current.set(`${peerSocketId}_${track.id}`, sender);
-            });
-        }
-
-        // Forward ICE candidates over Socket.IO signaling.
-        peerConnection.onicecandidate = (event) => {
-            if (!event.candidate) return;
-
-            // send serializable candidate object
-            const cand = event.candidate.toJSON ? event.candidate.toJSON() : event.candidate;
-
-            socket.emit("webrtc_ice_candidate", {
-                roomId: VOICE_ROOM_ID,
-                targetSocketId: peerSocketId,
-                candidate: cand,
-            });
-        };
-
-        // Track ICE gathering state
-        peerConnection.onicegatheringstatechange = () => {
-            const state = peerConnection.iceGatheringState;
-            console.log(`[${peerSocketId}] ICE gathering state:`, state);
-        };
-
-        // Track ICE connection state
-        peerConnection.oniceconnectionstatechange = () => {
-            const state = peerConnection.iceConnectionState;
-            console.log(`[${peerSocketId}] ICE connection state:`, state);
-            setIceStates((prev) => ({ ...prev, [peerSocketId]: state }));
-        };
-
-        // Track RTC connection state
-        peerConnection.onconnectionstatechange = () => {
-            const state = peerConnection.connectionState;
-            console.log(`[${peerSocketId}] RTC connection state:`, state);
-            setRtcStates((prev) => ({ ...prev, [peerSocketId]: state }));
-
-            if (state === "connected") {
-                // At least one peer is connected
-                setConnectionStatus("connected");
-            } else if (state === "failed") {
-                closePeerConnection(peerSocketId);
-            } else if (state === "disconnected" || state === "closed") {
-                closePeerConnection(peerSocketId);
-            }
-        };
-
-        // Attach incoming remote streams (both audio and video)
-        peerConnection.ontrack = (event) => {
-            const [remoteStream] = event.streams;
-            if (!remoteStream) return;
-
-            // Distinguish between audio and video/screen share
-            if (event.track.kind === "video") {
-                setRemoteScreenShares((prev) => ({ ...prev, [peerSocketId]: remoteStream }));
-                setPeersWithScreenShare((prev) => new Set([...prev, peerSocketId]));
-            } else if (event.track.kind === "audio") {
-                setRemoteStreams((prev) => ({ ...prev, [peerSocketId]: remoteStream }));
-            }
-        };
-
-        peerConnectionsRef.current.set(peerSocketId, peerConnection);
-        return peerConnection;
-    }, [socket, closePeerConnection]);
+    const roomRef = useRef(null);
+    const participantsRef = useRef(new Map());
 
     const handleJoin = useCallback(async () => {
         if (isJoined || isJoining) return;
@@ -182,305 +96,230 @@ export default function VoiceChannel({ socket, isLakeHouse }) {
         setConnectionStatus("connecting");
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
+            // Get LiveKit token from backend
+            const tokenRes = await fetch(`/api/livekit/token?roomId=${VOICE_ROOM_ID}`, {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+                },
+            });
+
+            if (!tokenRes.ok) throw new Error("Failed to get LiveKit token");
+            const { token } = await tokenRes.json();
+
+            // Create and connect LiveKit room
+            const room = new Room({
                 audio: {
                     noiseSuppression: true,
                     echoCancellation: true,
-                    autoGainControl: true
-                }
+                    autoGainControl: true,
+                },
+                video: false,
             });
-            localStreamRef.current = stream;
 
-            // 🔥 Create a temporary PC to force ICE gathering
-            const testPc = new RTCPeerConnection(rtcConfig);
+            await room.connect(LIVEKIT_URL, token);
 
-            stream.getTracks().forEach(track =>
-                testPc.addTrack(track, stream)
-            );
+            roomRef.current = room;
 
-            testPc.onicecandidate = (e) => {
-                if (e.candidate) {
-                    console.log("ICE candidate:", e.candidate.type, e.candidate.candidate);
-                }
+            // Enable audio for local participant
+            await room.localParticipant.setMicrophoneEnabled(true);
+
+            // Set up event listeners
+            const handleParticipantConnected = (participant) => {
+                console.log("Participant connected:", participant.name);
+                participantsRef.current.set(participant.sid, participant);
+
+                // Track speaking
+                const handleSpeakingChanged = (speaking) => {
+                    setSpeakingUsers((prev) => {
+                        const next = new Set(prev);
+                        if (speaking) {
+                            next.add(participant.sid);
+                        } else {
+                            next.delete(participant.sid);
+                        }
+                        return next;
+                    });
+                };
+
+                // Track screen share
+                const handleTrackSubscribed = (track) => {
+                    if (track.kind === "video") {
+                        setRemoteScreenShares((prev) => ({
+                            ...prev,
+                            [participant.sid]: track,
+                        }));
+                        setPeersWithScreenShare((prev) => new Set([...prev, participant.sid]));
+                    }
+                };
+
+                const handleTrackUnsubscribed = (track) => {
+                    if (track.kind === "video") {
+                        setRemoteScreenShares((prev) => {
+                            const next = { ...prev };
+                            delete next[participant.sid];
+                            return next;
+                        });
+                        setPeersWithScreenShare((prev) => {
+                            const next = new Set(prev);
+                            next.delete(participant.sid);
+                            return next;
+                        });
+                    }
+                };
+
+                participant.on("trackSubscribed", handleTrackSubscribed);
+                participant.on("trackUnsubscribed", handleTrackUnsubscribed);
+                participant.on("speakingChanged", handleSpeakingChanged);
+
+                // Update voice users list
+                updateVoiceUsers(room);
             };
 
-            const offer = await testPc.createOffer();
-            await testPc.setLocalDescription(offer);
+            const handleParticipantDisconnected = (participant) => {
+                console.log("Participant disconnected:", participant.name);
+                participantsRef.current.delete(participant.sid);
+                setSpeakingUsers((prev) => {
+                    const next = new Set(prev);
+                    next.delete(participant.sid);
+                    return next;
+                });
+                setRemoteScreenShares((prev) => {
+                    const next = { ...prev };
+                    delete next[participant.sid];
+                    return next;
+                });
+                setPeersWithScreenShare((prev) => {
+                    const next = new Set(prev);
+                    next.delete(participant.sid);
+                    return next;
+                });
+                updateVoiceUsers(room);
+            };
 
-            console.log("Forced ICE gathering started");
+            room.on("participantConnected", handleParticipantConnected);
+            room.on("participantDisconnected", handleParticipantDisconnected);
+
+            // Subscribe to existing participants
+            room.participants.forEach(handleParticipantConnected);
 
             setIsJoined(true);
-            socket.emit("join_voice_channel", { roomId: VOICE_ROOM_ID });
+            setConnectionStatus("connected");
+            playSound("join", soundsEnabled);
+            updateVoiceUsers(room);
 
         } catch (joinError) {
             console.error("Failed to join voice channel:", joinError);
-            setError("Microphone permission is required to join voice.");
+            setError("Failed to join voice channel: " + joinError.message);
             setConnectionStatus("failed");
         } finally {
             setIsJoining(false);
         }
-    }, [isJoined, isJoining, socket]);
+    }, [isJoined, isJoining, soundsEnabled]);
 
 
-    const handleLeave = useCallback(() => {
-        socket.emit("leave_voice_channel", { roomId: VOICE_ROOM_ID });
+    const handleLeave = useCallback(async () => {
+        playSound("leave", soundsEnabled);
 
-        peerConnectionsRef.current.forEach((_, peerSocketId) => closePeerConnection(peerSocketId));
-
-        if (localStreamRef.current) {
-            localStreamRef.current.getTracks().forEach((track) => track.stop());
-            localStreamRef.current = null;
+        if (roomRef.current) {
+            await roomRef.current.disconnect();
+            roomRef.current = null;
         }
 
-        if (screenShareStreamRef.current) {
-            screenShareStreamRef.current.getTracks().forEach((track) => track.stop());
-            screenShareStreamRef.current = null;
-        }
-
-        setRemoteStreams({});
+        participantsRef.current.clear();
         setRemoteScreenShares({});
+        setPeersWithScreenShare(new Set());
         setVoiceUsers([]);
         setIsJoined(false);
         setError(null);
         setConnectionStatus("idle");
-        setIceStates({});
-        setRtcStates({});
+        setSpeakingUsers(new Set());
         setIsScreenSharing(false);
         setScreenShareError(null);
         setSelectedScreenPeer(null);
-        setPeersWithScreenShare(new Set());
         setIsMuted(false);
         setIsDeafened(false);
-    }, [closePeerConnection, socket]);
+    }, [soundsEnabled]);
 
     const handleShareScreen = useCallback(async () => {
-        if (isScreenSharing) return;
+        if (isScreenSharing || !roomRef.current) return;
 
         try {
             setScreenShareError(null);
-            const displayStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { cursor: "always" },
-            });
-
-            screenShareStreamRef.current = displayStream;
+            await roomRef.current.localParticipant.setScreenShareEnabled(true);
+            playSound("shareStart", soundsEnabled);
             setIsScreenSharing(true);
-
-            // Handle when user stops the screen share from the OS dialog
-            displayStream.getTracks().forEach((track) => {
-                track.onended = () => {
-                    handleStopScreenShare();
-                };
-            });
-
-            // Add screen share tracks to all existing peer connections and renegotiate
-            const videoTracks = displayStream.getVideoTracks();
-            if (videoTracks.length > 0) {
-                for (const [peerSocketId, peerConnection] of peerConnectionsRef.current.entries()) {
-                    try {
-                        // Add tracks and store senders
-                        videoTracks.forEach((track) => {
-                            const sender = peerConnection.addTrack(track, displayStream);
-                            screenShareSendersRef.current.set(`${peerSocketId}_${track.id}`, sender);
-                        });
-
-                        // Renegotiate: create a new offer
-                        const offer = await peerConnection.createOffer();
-                        await peerConnection.setLocalDescription(offer);
-
-                        socket.emit("webrtc_offer", {
-                            roomId: VOICE_ROOM_ID,
-                            targetSocketId: peerSocketId,
-                            sdp: offer,
-                        });
-                    } catch (err) {
-                        console.error(`Failed to add screen to peer ${peerSocketId}:`, err);
-                    }
-                }
-            }
         } catch (err) {
             console.error("Screen share error:", err);
-            if (err.name !== "NotAllowedError") {
-                setScreenShareError("Failed to start screen sharing.");
-            }
-            setIsScreenSharing(false);
+            setScreenShareError("Failed to start screen sharing");
         }
-    }, [isScreenSharing, socket]);
+    }, [isScreenSharing, soundsEnabled]);
 
     const handleStopScreenShare = useCallback(async () => {
-        if (!isScreenSharing || !screenShareStreamRef.current) return;
+        if (!isScreenSharing || !roomRef.current) return;
 
-        // Stop all screen share tracks
-        screenShareStreamRef.current.getTracks().forEach((track) => track.stop());
-
-        const videoTrackIds = screenShareStreamRef.current
-            .getVideoTracks()
-            .map((track) => track.id);
-
-        screenShareStreamRef.current = null;
-        setIsScreenSharing(false);
-        setScreenShareError(null);
-
-        // Remove screen share senders from all peer connections and renegotiate
-        for (const [peerSocketId, peerConnection] of peerConnectionsRef.current.entries()) {
-            try {
-                // Find and remove senders for screen tracks
-                const senders = peerConnection.getSenders();
-                const screenSenders = senders.filter((sender) =>
-                    sender.track && sender.track.kind === "video" && videoTrackIds.includes(sender.track.id)
-                );
-
-                for (const sender of screenSenders) {
-                    peerConnection.removeTrack(sender);
-                    screenShareSendersRef.current.delete(`${peerSocketId}_${sender.track.id}`);
-                }
-
-                // Renegotiate: create a new offer
-                if (screenSenders.length > 0) {
-                    const offer = await peerConnection.createOffer();
-                    await peerConnection.setLocalDescription(offer);
-
-                    socket.emit("webrtc_offer", {
-                        roomId: VOICE_ROOM_ID,
-                        targetSocketId: peerSocketId,
-                        sdp: offer,
-                    });
-                }
-            } catch (err) {
-                console.error(`Failed to remove screen from peer ${peerSocketId}:`, err);
-            }
+        try {
+            await roomRef.current.localParticipant.setScreenShareEnabled(false);
+            playSound("shareStop", soundsEnabled);
+            setIsScreenSharing(false);
+            setScreenShareError(null);
+        } catch (err) {
+            console.error("Error stopping screen share:", err);
+            setScreenShareError("Failed to stop screen sharing");
         }
-    }, [isScreenSharing, socket]);
+    }, [isScreenSharing, soundsEnabled]);
 
-    const handleToggleMute = useCallback(() => {
-        if (!localStreamRef.current) return;
+    const handleToggleMute = useCallback(async () => {
+        if (!roomRef.current) return;
 
-        const audioTracks = localStreamRef.current.getAudioTracks();
-        audioTracks.forEach((track) => {
-            track.enabled = !track.enabled;
-        });
-
-        setIsMuted(!isMuted);
-    }, [isMuted]);
+        const newMutedState = !isMuted;
+        await roomRef.current.localParticipant.setMicrophoneEnabled(!newMutedState);
+        playSound("mute", soundsEnabled);
+        setIsMuted(newMutedState);
+    }, [isMuted, soundsEnabled]);
 
     const handleToggleDeafen = useCallback(() => {
-        if (!localStreamRef.current) return;
-
-        // Deafen means receive no audio (mute all remote audio)
-        const audioElements = document.querySelectorAll("audio[autoplay]");
+        const audioElements = document.querySelectorAll("audio");
+        const newDeafenState = !isDeafened;
         audioElements.forEach((audio) => {
-            audio.muted = !isDeafened;
+            audio.muted = newDeafenState;
         });
 
-        setIsDeafened(!isDeafened);
-    }, [isDeafened]);
+        playSound("deafen", soundsEnabled);
+        setIsDeafened(newDeafenState);
+    }, [isDeafened, soundsEnabled]);
 
+    const updateVoiceUsers = (room) => {
+        const users = [
+            {
+                socketId: room.localParticipant.identity,
+                displayName: room.localParticipant.name || room.localParticipant.identity,
+                isLocal: true,
+            },
+            ...Array.from(room.participants.values()).map((p) => ({
+                socketId: p.identity,
+                displayName: p.name || p.identity,
+                isLocal: false,
+            })),
+        ];
+        setVoiceUsers(users);
+    };
+
+    // Cleanup on unmount
     useEffect(() => {
-        const onVoiceUsersChanged = async ({ roomId, users }) => {
-            if (roomId && roomId !== VOICE_ROOM_ID) return;
-
-            const nextUsers = users || [];
-            setVoiceUsers(nextUsers);
-
-            if (!isJoined || !socket.id) return;
-
-            const activePeerIds = new Set(nextUsers
-                .map((peer) => peer.socketId)
-                .filter((peerSocketId) => peerSocketId !== socket.id));
-
-            peerConnectionsRef.current.forEach((_, peerSocketId) => {
-                if (!activePeerIds.has(peerSocketId)) {
-                    closePeerConnection(peerSocketId);
-                }
-            });
-
-            for (const peerSocketId of activePeerIds) {
-                if (peerConnectionsRef.current.has(peerSocketId)) continue;
-
-                if (socket.id > peerSocketId) continue;
-
-                const peerConnection = createPeerConnection(peerSocketId);
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-
-                socket.emit("webrtc_offer", {
-                    roomId: VOICE_ROOM_ID,
-                    targetSocketId: peerSocketId,
-                    sdp: offer,
-                });
-            }
-        };
-
-        const onOffer = async ({ sourceSocketId, targetSocketId, roomId, sdp }) => {
-            if (!isJoined || roomId !== VOICE_ROOM_ID || targetSocketId !== socket.id || sourceSocketId === socket.id) return;
-
-            const peerConnection = createPeerConnection(sourceSocketId);
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-
-            socket.emit("webrtc_answer", {
-                roomId: VOICE_ROOM_ID,
-                targetSocketId: sourceSocketId,
-                sdp: answer,
-            });
-        };
-
-        const onAnswer = async ({ sourceSocketId, targetSocketId, roomId, sdp }) => {
-            if (roomId !== VOICE_ROOM_ID || targetSocketId !== socket.id || sourceSocketId === socket.id) return;
-
-            const peerConnection = peerConnectionsRef.current.get(sourceSocketId);
-            if (!peerConnection) return;
-
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-        };
-
-        const onIceCandidate = async ({ sourceSocketId, targetSocketId, roomId, candidate }) => {
-            if (roomId !== VOICE_ROOM_ID || targetSocketId !== socket.id || sourceSocketId === socket.id) return;
-
-            let peerConnection = peerConnectionsRef.current.get(sourceSocketId);
-
-            // If we don't have a peer connection yet, create one (only possible if we have a local stream)
-            if (!peerConnection) {
-                if (!localStreamRef.current) return; // can't create connection without local media
-                try {
-                    peerConnection = createPeerConnection(sourceSocketId);
-                } catch (err) {
-                    console.warn("Unable to create peer connection for ICE candidate:", err);
-                    return;
-                }
-            }
-
-            try {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-            } catch (err) {
-                console.warn("Failed to add remote ICE candidate:", err);
-            }
-        };
-
-        socket.on("join_voice_channel", onVoiceUsersChanged);
-        socket.on("leave_voice_channel", onVoiceUsersChanged);
-        socket.on("webrtc_offer", onOffer);
-        socket.on("webrtc_answer", onAnswer);
-        socket.on("webrtc_ice_candidate", onIceCandidate);
-
         return () => {
-            socket.off("join_voice_channel", onVoiceUsersChanged);
-            socket.off("leave_voice_channel", onVoiceUsersChanged);
-            socket.off("webrtc_offer", onOffer);
-            socket.off("webrtc_answer", onAnswer);
-            socket.off("webrtc_ice_candidate", onIceCandidate);
+            if (roomRef.current) {
+                roomRef.current.disconnect();
+            }
         };
-    }, [closePeerConnection, createPeerConnection, isJoined, socket]);
+    }, []);
 
-    useEffect(() => () => {
-        peerConnectionsRef.current.forEach((_, peerSocketId) => closePeerConnection(peerSocketId));
-
-        if (localStreamRef.current) {
-            localStreamRef.current.getTracks().forEach((track) => track.stop());
-            localStreamRef.current = null;
-        }
-    }, [closePeerConnection]);
+    // Inject speaking indicator animations
+    useEffect(() => {
+        const styleEl = document.createElement("style");
+        styleEl.textContent = speakingStyles;
+        document.head.appendChild(styleEl);
+        return () => styleEl.remove();
+    }, []);
 
     if (!isLakeHouse) return null;
 
@@ -510,37 +349,6 @@ export default function VoiceChannel({ socket, isLakeHouse }) {
         }
     };
 
-    const getIceColor = (state) => {
-        switch (state) {
-            case "connected":
-            case "completed":
-                return "text-green-400";
-            case "checking":
-                return "text-yellow-400";
-            case "disconnected":
-                return "text-yellow-600";
-            case "failed":
-                return "text-red-400";
-            default:
-                return "text-slate-400";
-        }
-    };
-
-    const getRtcColor = (state) => {
-        switch (state) {
-            case "connected":
-                return "text-green-400";
-            case "connecting":
-                return "text-yellow-400";
-            case "disconnected":
-                return "text-yellow-600";
-            case "failed":
-                return "text-red-400";
-            default:
-                return "text-slate-400";
-        }
-    };
-
     return (
         <div className="mt-4">
             <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Voice channels</div>
@@ -554,18 +362,6 @@ export default function VoiceChannel({ socket, isLakeHouse }) {
                             <div className={`w-2 h-2 rounded-full ${getStatusColor(connectionStatus)}`}></div>
                             <span className="text-xs text-slate-300">{getStatusText(connectionStatus)}</span>
                         </div>
-
-                        {/* Per-peer detailed status */}
-                        {Object.keys(iceStates).length > 0 && (
-                            <div className="ml-3 space-y-0.5 text-xs">
-                                {Object.entries(iceStates).map(([peerId, iceState]) => (
-                                    <div key={peerId} className="flex items-center gap-2">
-                                        <span className={`${getIceColor(iceState)} font-mono`}>ICE: {iceState}</span>
-                                        <span className={`${getRtcColor(rtcStates[peerId] || "new")} font-mono`}>RTC: {rtcStates[peerId] || "new"}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
                     </div>
                 )}
 
@@ -576,9 +372,10 @@ export default function VoiceChannel({ socket, isLakeHouse }) {
                         <div className="flex-1 bg-black rounded mb-2 overflow-hidden">
                             <video
                                 autoPlay
+                                playsInline
                                 className="w-full h-full object-contain"
                                 ref={(node) => {
-                                    if (node && node.srcObject !== remoteScreenShares[selectedScreenPeer]) {
+                                    if (node && remoteScreenShares[selectedScreenPeer]) {
                                         node.srcObject = remoteScreenShares[selectedScreenPeer];
                                     }
                                 }}
@@ -600,7 +397,8 @@ export default function VoiceChannel({ socket, isLakeHouse }) {
                                             }
                                         }}
                                     >
-                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                                        <div className={`w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold ${speakingUsers.has(voiceUser.socketId) ? "speaking-indicator" : ""
+                                            }`}>
                                             {voiceUser.displayName.charAt(0).toUpperCase()}
                                         </div>
                                         <div className="flex-1">
@@ -682,20 +480,6 @@ export default function VoiceChannel({ socket, isLakeHouse }) {
                         {isJoining ? "Joining..." : "Join Voice"}
                     </button>
                 )}
-
-                {/* Remote Audio Streams (hidden element) */}
-                {Object.entries(remoteStreams).map(([peerSocketId, stream]) => (
-                    <audio
-                        key={`audio_${peerSocketId}`}
-                        autoPlay
-                        muted={isDeafened}
-                        ref={(node) => {
-                            if (node && node.srcObject !== stream) {
-                                node.srcObject = stream;
-                            }
-                        }}
-                    />
-                ))}
             </div>
         </div>
     );
