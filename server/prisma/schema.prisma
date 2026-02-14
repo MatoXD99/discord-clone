@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -20,11 +19,11 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  messages             Message[]
-  friendRequestsSent   Friendship[] @relation("friendRequester")
-  friendRequestsReceived Friendship[] @relation("friendAddressee")
-  dmParticipants       DMParticipant[]
-  dmMessages           DirectMessage[]
+  messages               Message[]
+  friendRequestsSent     Friendship[]    @relation("friendRequester")
+  friendRequestsReceived Friendship[]    @relation("friendAddressee")
+  dmParticipants         DMParticipant[]
+  dmMessages             DirectMessage[]
 }
 
 model Server {
@@ -68,12 +67,12 @@ model Message {
 }
 
 model Friendship {
-  id           Int      @id @default(autoincrement())
-  requesterId  Int
-  addresseeId  Int
-  status       String   @default("pending")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  requesterId Int
+  addresseeId Int
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   requester User @relation("friendRequester", fields: [requesterId], references: [id], onDelete: Cascade)
   addressee User @relation("friendAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)

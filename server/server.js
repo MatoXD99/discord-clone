@@ -8,13 +8,18 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 import { register, login, verifyToken, serializeUser } from "./auth.js";
 import { setupSocketHandlers, getServersWithChannels } from "./socket.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const prisma = new PrismaClient({});
+const connectionString = process.env.DATABASE_URL || "";
+const pool = new pg.Pool({ connectionString });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 const app = express();
 app.set("trust proxy", true);
 const httpServer = createServer(app);
