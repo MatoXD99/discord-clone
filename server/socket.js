@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { verifyToken } from "./auth.js";
+import { registerVoiceHandlers } from "./voice.js";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
@@ -44,24 +45,6 @@ const toMessagePayload = (msg) => ({
 const toDMMessagePayload = (msg) => ({ ...toMessagePayload(msg), conversationId: msg.conversationId });
 const channelRoom = (serverId, channelId) => `channel:${serverId}:${channelId}`;
 const dmRoom = (conversationId) => `dm:${conversationId}`;
-const VOICE_ROOM = "voice:living-room";
-
-const getVoiceParticipants = (io, roomName) => {
-    const room = io.sockets.adapter.rooms.get(roomName);
-    if (!room) return [];
-
-    return [...room]
-        .map((socketId) => {
-            const peerSocket = io.sockets.sockets.get(socketId);
-            if (!peerSocket?.profile) return null;
-            return {
-                socketId,
-                userId: peerSocket.userId,
-                displayName: peerSocket.profile.displayName,
-            };
-        })
-        .filter(Boolean);
-};
 
 async function initializeServersAndChannels() {
     if (!capabilities.server) {
@@ -200,6 +183,7 @@ export async function setupSocketHandlers(io) {
 
         socket.profile = toUserSummary(connectedUser);
         socket.currentChannel = null;
+        socket.data.voiceRoom = null;
         socket.join(`user:${socket.userId}`);
 
         socket.emit("dm_list", await getDmListForUser(socket.userId));
@@ -326,50 +310,7 @@ export async function setupSocketHandlers(io) {
             }
         });
 
-        socket.on("join_voice_channel", () => {
-            socket.join(VOICE_ROOM);
-            const users = getVoiceParticipants(io, VOICE_ROOM);
-            io.to(VOICE_ROOM).emit("join_voice_channel", { users });
-        });
-
-        socket.on("leave_voice_channel", () => {
-            socket.leave(VOICE_ROOM);
-            const users = getVoiceParticipants(io, VOICE_ROOM);
-            io.to(VOICE_ROOM).emit("leave_voice_channel", { users });
-        });
-
-        socket.on("webrtc_offer", ({ targetSocketId, sdp }) => {
-            if (!targetSocketId || !sdp) return;
-            const room = io.sockets.adapter.rooms.get(VOICE_ROOM);
-            if (!room?.has(socket.id) || !room.has(targetSocketId)) return;
-
-            io.to(targetSocketId).emit("webrtc_offer", { sourceSocketId: socket.id, sdp });
-        });
-
-        socket.on("webrtc_answer", ({ targetSocketId, sdp }) => {
-            if (!targetSocketId || !sdp) return;
-            const room = io.sockets.adapter.rooms.get(VOICE_ROOM);
-            if (!room?.has(socket.id) || !room.has(targetSocketId)) return;
-
-            io.to(targetSocketId).emit("webrtc_answer", { sourceSocketId: socket.id, sdp });
-        });
-
-        socket.on("webrtc_ice_candidate", ({ targetSocketId, candidate }) => {
-            if (!targetSocketId || !candidate) return;
-            const room = io.sockets.adapter.rooms.get(VOICE_ROOM);
-            if (!room?.has(socket.id) || !room.has(targetSocketId)) return;
-
-            io.to(targetSocketId).emit("webrtc_ice_candidate", { sourceSocketId: socket.id, candidate });
-        });
-
-        socket.on("disconnecting", () => {
-            if (!socket.rooms.has(VOICE_ROOM)) return;
-
-            setTimeout(() => {
-                const users = getVoiceParticipants(io, VOICE_ROOM);
-                io.to(VOICE_ROOM).emit("leave_voice_channel", { users });
-            }, 0);
-        });
+        registerVoiceHandlers(io, socket);
     });
 }
 
