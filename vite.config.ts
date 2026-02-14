@@ -37,12 +37,12 @@ export default defineConfig(({ mode }) => {
       },
       ...(hmrHost || hmrProtocol || hmrClientPort
         ? {
-            hmr: {
-              ...(hmrHost ? { host: hmrHost } : {}),
-              ...(hmrProtocol ? { protocol: hmrProtocol } : {}),
-              ...(hmrClientPort ? { clientPort: hmrClientPort } : {}),
-            },
-          }
+          hmr: {
+            ...(hmrHost ? { host: hmrHost } : {}),
+            ...(hmrProtocol ? { protocol: hmrProtocol } : {}),
+            ...(hmrClientPort ? { clientPort: hmrClientPort } : {}),
+          },
+        }
         : {}),
     },
   }
